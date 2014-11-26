@@ -83,7 +83,7 @@ PlotColorPalette <- function (pal,
 ###  Blake Massey
 ###  2014.11.21
 
-PlotColorPie <- function(pal, names = TRUE, radius = 100){
+PlotColorPie <- function(pal, names = TRUE, radius = 1){
   plot.new()
   par(mfrow=c(1,1))  
   if (names == TRUE){

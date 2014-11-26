@@ -29,8 +29,8 @@ CreateColorsByMetadata <- function(file,
 ###               palette based on the unique number of factors in the variable 
 ###               and assigned colors based on the 'pal', 'b_pal', or 'r_pal' 
 ###               parameters.
-###             pal = name of color palette funtions (e.g., "rainbow", 
-###               "heat.colors", "terrain.colors, "topo.colors", or "cm.colors")
+###             pal = name of color palette funtions (e.g., rainbow, 
+###               heat.colors, terrain.colors, topo.colors, or cm.colors)
 ###               used to create colors. This parameter has priority over the 
 ###               other color palette parameters. Default is NULL
 ###             r_pal = Specifc number of 'R_pal' color palette from the PlotKML
@@ -115,8 +115,8 @@ CreateColorsByVar <- function (df,
 ###             point_metadata = location of metadata .csv file. Metadata file 
 ###               must have a column that matches name of 'point_color'
 ###               parameter and "icon_color" column with hexadecimal colors.
-###             point_pal = name of color palette funtions (e.g., "rainbow", 
-###               "heat.colors", "terrain.colors, "topo.colors", "cm.colors"
+###             point_pal = name of color palette funtions (e.g., rainbow, 
+###               heat.colors, terrain.colors, topo.colors, cm.colors
 ###               used to create colors. This parameter has priority over the 
 ###               other point color palette parameters. Default is NULL.
 ###             point_r_pal = Specifc number of 'R_pal' color palette from the 
@@ -134,8 +134,8 @@ CreateColorsByVar <- function (df,
 ###             path_metadata = location of metadata .csv file. Metadata file 
 ###               must have a column that matches name of 'path_color'
 ###               parameter and an "icon_color" column with hexadecimal colors.
-###             point_pal = name of color palette funtions (e.g., "rainbow", 
-###               "heat.colors", "terrain.colors, "topo.colors", "cm.colors"
+###             point_pal = name of color palette funtions (e.g., rainbow, 
+###               heat.colors, terrain.colors, topo.colors, cm.colors
 ###               used to create colors. This parameter has priority over the 
 ###               other point color palette parameters. Default is NULL.
 ###             point_r_pal = Specifc number of 'R_pal' color palette from the 
@@ -205,39 +205,39 @@ ExportKMLTelemetry <- function (df,
   df$point_color <- df[ ,point_color]
   df$lat <- df[ ,lat]  
   df$long <- df[ ,long] 
-  if (alt_mode == "absolute" | alt_mode == "relativeToGround") {
-    df$alt <- df[ ,alt]  # writes altitude to the "alt" column
+  if (!is.null(alt)){
+    df$desc_alt <- df[ ,alt]  # writes altitude to the "alt" column
     alt1 <- '\t\t\t\t\tAltitude: '  # first part of "Altitude" description
     alt2 <- '\n'  # second part of "Altitude" description
   } else {
-    df$alt <- ""  # makes the altitude column a vector of blank values  
+    df$desc_alt <- ""  # makes the altitude column a vector of blank values  
     alt1 <- NULL  # prevents "Altitude" description from being written
     alt2 <- NULL  # prevents "Altitude" description from being written    
   }
   if (!is.null(agl)) {
-    df$agl <- df[ ,agl]  # writes altitude to the "alt" column
-    agl1 <- '\t\t\t\t\tAGL: '
+    df$desc_agl <- df[ ,agl]  
+    agl1 <- '\t\t\t\t\tAGL: '  # first part of the "Altitdue" description
     agl2 <- '\n'  # second part of "Altitude" description
   } else {
-    df$agl <- ""  # makes the altitude column a vector of blank values  
+    df$desc_agl <- ""  # makes the altitude column a vector of blank values  
     agl1 <- NULL  # prevents "Altitude Above Ground Level" from being written
     agl2 <- NULL  # prevents "Altitude Above Ground Level" from being written
   }
   if (!is.null(speed)) {
-    df$speed <- df[,speed]  # writes speed to the "speed" column
+    df$desc_speed <- df[,speed]  # writes speed to the "speed" column
     spd1 <- '\t\t\t\t\tSpeed: '  # writes first part of the "Speed" description
     spd2 <- '\n'  # writes second part of the "Speed" description
   } else {
-    df$speed <- ""  # makes the speed column a vector of blank values  
+    df$desc_speed <- ""  # makes the speed column a vector of blank values  
     spd1 <- NULL  # prevents "Speed" description from being written
     spd2 <- NULL  # prevents "Speed" description from being written    
   }
   if (!is.null(behavior)) {
-    df$behavior <- df[,behavior]  # writes behavior to the "behavior" column
+    df$desc_behavior <- df[,behavior]  # writes behavior to the "behavior" column
     beh1 <- '\t\t\t\t\tBehavior: '  # first part of the "Behavior" description
     beh2 <- '\n'  # second part of the "Behavior" description
   } else {
-    df$behavior <- ""  # makes the behavior column a vector of blank values  
+    df$desc_behavior <- ""  # makes the behavior column a vector of blank values  
     beh1 <- NULL  # prevents "Behavior" description from being written
     beh2 <- NULL  # prevents "Behavior" description from being written    
   }
@@ -254,9 +254,10 @@ ExportKMLTelemetry <- function (df,
   datetimeend <- unsplit(df_split, id)  # returns array of returned values
   df <- cbind(df, datetimeend)  # adds datetimeend column to original baea data
 
-  PlacemarkPoint <- function(PN, X,  Y, Z, AG,
-                             SP, BH, SX, PS, ID, 
-                             SD, ST, ED, ET, DA, TM) {
+  PlacemarkPoint <- function(PN, X,  Y, Z, ZD, 
+                             AG, SP, BH, SX, PS, 
+                             ID, SD, ST, ED, ET, 
+                             DA, TM) {
     if (icon_by_sex == TRUE) PS <- paste0(PS,"-",SX)
     cat("\t<Placemark>\n",
       "\t\t<name>",PN, "</name>\n",
@@ -271,7 +272,7 @@ ExportKMLTelemetry <- function (df,
       "\t\t\t\t\tTime: ", TM, "\n",
       "\t\t\t\t\tLongitude: ", X, "\n",
       "\t\t\t\t\tLatitude: ", Y, "\n",
-      alt1, Z, alt2,  # written when alt is "absolute" or "relativeToGround"
+      alt1, ZD, alt2,  # written when !is.null(agl)
       agl1, AG, agl2, # written when !is.null(agl)
       spd1, SP, spd2,  # written when !is.null(speed)
       beh1, BH, beh2, # written when !is.null(behavior)
@@ -467,9 +468,10 @@ ExportKMLTelemetry <- function (df,
       Xs <- loc[, "long"]
       Ys <- loc[, "lat"]
       Zs <- loc[, "alt"]
-      SPs <- loc[, "speed"]
-      AGs <- loc[, "agl"]
-      BHs <- loc[, "behavior"]
+      ZDs <- loc[, "desc_alt"]      
+      SPs <- loc[, "desc_speed"]
+      AGs <- loc[, "desc_agl"]
+      BHs <- loc[, "desc_behavior"]
       SXs <- loc[, "sex"]
       PSs <- loc[, "point_color"] 
       IDs <- unique_id 
@@ -479,9 +481,10 @@ ExportKMLTelemetry <- function (df,
       ETs <- substring(loc$datetimeend, 12,19) #end time 
       DAs <- strftime(loc[, "datetimebegin"], dateformat)
       TMs <- strftime(loc[, "datetimebegin"], timeformat)      
-      PlacemarkPoint(PNs, Xs, Ys, Zs, AGs, 
-                     SPs, BHs, SXs, PSs, IDs,  
-                     SDs, STs, EDs,  ETs, DAs, TMs)     
+      PlacemarkPoint(PNs, Xs, Ys, Zs, ZDs,
+                     AGs,  SPs, BHs, SXs, PSs, 
+                     IDs,  SDs, STs, EDs,  ETs, 
+                     DAs, TMs)     
     }      
     cat("\t</Folder>\n", file = outfile, append = TRUE, sep = "")
     locs$Ts <- "T"

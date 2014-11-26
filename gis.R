@@ -25,6 +25,7 @@ AddLandscapeValues <- function(df,
                                long = "long_utm",
                                lat = "lat_utm",
                                clean_up = TRUE){
+  suppressPackageStartupMessages(require(plyr))
   suppressPackageStartupMessages(require(raster))
   df <- df
   raster_stack <- raster_stack
@@ -46,8 +47,8 @@ AddLandscapeValues <- function(df,
   }
   if (clean_up == TRUE){
     if ("elev" %in% colnames(df)){
-      df$alt_abv_grd <- df$alt - df$elev
-      col_names_list <- append(col_names_list, "elev_over_grd")
+      df$agl <- df$alt - df$elev
+      col_names_list <- append(col_names_list, "agl")
     }
     if ("lc" %in% colnames(df)) {
       nlcd_classes <- read.csv(file.path("C:/ArcGIS/Data/Landcover",
@@ -166,7 +167,7 @@ CreateCategoricalLegend <-function(metadata,
   z_max <- color_seq[length(color_seq)]
   y_seq <- seq(y_min, y_max, length.out = length(colors_kml) +1)
   rect(x_min, y_seq[-(length(colors_kml)+1)], x_max, y_seq[-1], col =colors_kml, 
-    border = "black") # this is works to draw the vertical color ramp
+    border = "black") # this draws the vertical color ramp
   dim_x <- (x_max - x_min)
   dim_y <- (y_max - y_min)
   if (left) {

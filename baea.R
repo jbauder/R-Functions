@@ -16,11 +16,11 @@
 ###  2014.09.30
 
 AddCruiseBehavior <- function(df = df, 
-                              alt_abv_grd = 25,
+                              min_agl = 25,
                               min_speed = 5) {
-  df<-df
-  df$behavior <- ifelse(df$alt_abv_grd >= alt_abv_grd & 
-    df$speed >= min_speed & is.na(df$behavior), "cruise", df$behavior)
+  df <- df
+  df$behavior <- ifelse(df$agl >= min_agl & df$speed >= min_speed & 
+    is.na(df$behavior), "cruise", df$behavior)
   return(df)
 }
 
@@ -38,7 +38,7 @@ AddCruiseBehavior <- function(df = df,
 ###  2014.09.30
 
 AddForageBehavior <- function(df = df, 
-                            dist_to_hydro = 75) {
+                              dist_to_hydro = 75) {
   df<-df
   df$behavior <- ifelse(df$hydro_dist <= dist_to_hydro & is.na(df$behavior), 
                         "forage", df$behavior)
