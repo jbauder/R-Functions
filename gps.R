@@ -674,9 +674,13 @@ PlotLocationSunriseSunset <- function(df = df,
   if(!is.null(color_factor)) {
     cf_name <- color_factor
     df$color_factor<-df[,color_factor]
-  }
-  by_colors <- CreateColorsByAny(by=color_factor, df=df, output=TRUE, pal=pal, 
+    by_colors <- CreateColorsByAny(by=color_factor, df=df, output=TRUE, pal=pal, 
     b_pal=b_pal)
+  } else {
+    ifelse(is.null(by),  df$by <- "all", df$by <- df[,by])     
+    by_colors <- CreateColorsByAny(by=by, df=df, output=TRUE, pal=pal, 
+    b_pal=b_pal)
+  }
   if ( ! (individual == "" || individual == "all" || is.null(individual))){  
     df = df[which(df[,"id"] == individual), ]  # to extract individuals  
   }

@@ -24,7 +24,57 @@ AddCruiseBehavior <- function(df = df,
   return(df)
 }
 
-# AddForageBehavior Function ---------------------------------------------------
+# AddFlightData Function ---------------------------------------------------
+
+###  Finds location data that meet given threshold parameters for flights, which
+###    include the start point, mid-flight, and final location of a flight
+###  Usage: AddFlightsData(df, alt_abv_grd, min_speed)
+###  Arguments: df = dataframe 
+###             min_speed = minimum speed of bird
+###             min_step_length = distance (in meters) between locations
+###             max_time_step = maximum time between locations
+###  Returns: dataframe with columns for flight_index, flight_step, and
+###    flight_lenght
+###  Notes: should run AddLandscapeValues() prior to this function 
+###  Blake Massey
+###  2014.11.27
+
+AddFlightData <- function(df, 
+                          min_speed = 5,
+                          min_step_length = 50,
+                          max_step_time = 20){
+  df_org <- df
+  df <- df
+  df$flight <- ifelse(df$speed > min_speed, TRUE, FALSE)
+  df$movement <- ifelse(df$step_length > min_step_length, TRUE, FALSE)
+  df$within_window <- ifelse(df$step_time < max_step_time, TRUE , FALSE)
+  moved <- ifelse(df$step_length > min_step_length, TRUE, FALSE)
+  df$moved <- c(NA, moved[-length(moved)]) 
+  df$mid_flight <- ifelse(df$moved == TRUE & df$movement == TRUE & 
+    df$flight == TRUE, TRUE, FALSE)
+  df$index <- seq.int(nrow(df))
+  before <- which(df$mid_flight == TRUE) - 1
+  mid <- which(df$mid_flight == TRUE)
+  after <- which(df$mid_flight == TRUE) + 1
+  complete <- sort.int(unique(c(before, mid, after)))
+  flights <- df[complete,c("id", "datetime", "index", "mid_flight")]
+  index1 <- c(which(!diff(flights$index)==1), nrow(flights))
+  index2 <- c(1, index1 + 1)  # index of first records of sequential groups 
+  index3 <- diff(index2)  # length of each seq group
+  index4 <- rep(seq(1,length(index3), by=1), times=index3)
+  
+  flights$flight_index <- index4
+  flights$flight_step <- sequence(rle(flights$flight_index)$lengths)
+  flights$flight_index <- factor(index4)  
+  suppressPackageStartupMessages(require(plyr))
+  flights <- ddply(flights, .(flight_index, id), transform, 
+    flight_length=length(flight_step))
+  df2 <- suppressMessages(plyr::join(df_org, flights))
+  df2$index <- NULL
+  return(df2)
+}
+
+# AddForageBehavior (deprectated) Function -------------------------------------
 
 ###  Finds forage behavior that meet given threshold parameters
 ###  Usage: AddForageBehavior(df, dist_to_hydro)
@@ -37,13 +87,13 @@ AddCruiseBehavior <- function(df = df,
 ###  Blake Massey
 ###  2014.09.30
 
-AddForageBehavior <- function(df = df, 
-                              dist_to_hydro = 75) {
-  df<-df
-  df$behavior <- ifelse(df$hydro_dist <= dist_to_hydro & is.na(df$behavior), 
-                        "forage", df$behavior)
-  return(df)
-}
+# AddForageBehavior <- function(df = df, 
+#                               dist_to_hydro = 75) {
+#   df<-df
+#   df$behavior <- ifelse(df$hydro_dist <= dist_to_hydro & is.na(df$behavior), 
+#                         "forage", df$behavior)
+#   return(df)
+# }
 
 # AddNestBehavior Function -----------------------------------------------------
 
@@ -352,11 +402,19 @@ CreateColorsByAny <- function (by,
                               output = TRUE,
                               plot = FALSE,
                               ...) {
+  source('C:/Work/R/Functions/kml.R')
+  if (!is.null(by)){
   if (by == "behavior" || by == "id" || by == "sex") {
-    if (by == "behavior") by_colors <- CreateColorsByBehavior()
+    if (by == "behavior") by_colors <- CreateColorsByMetadata(file=
+      "C:/Work/R/Data/BAEA/BAEA_metadata.csv", metadata_id="behavior")
     if (by == "id") by_colors <- CreateColorsByMetadata(file=
-      "C:/Work/R/Data/BAEA/BAEA_gps_data.csv", id="deploy_location")
-    if (by == "sex") by_colors <- CreateColorsBySex()
+      "C:/Work/R/Data/BAEA/BAEA_gps_data.csv", metadata_id="deploy_location")
+    if (by == "sex") by_colors <- CreateColorsByMetadata(file=
+      "C:/Work/R/Data/BAEA/BAEA_metadata.csv", metadata_id="sex")
+  } else {
+    by_colors <- CreateColorsByVar(df=df, by=by, pal=pal, r_pal = r_pal, b_pal = 
+      b_pal)
+  }
   } else {
     by_colors <- CreateColorsByVar(df=df, by=by, pal=pal, r_pal = r_pal, b_pal = 
       b_pal)
@@ -364,197 +422,6 @@ CreateColorsByAny <- function (by,
   if (plot == TRUE) PlotColorPie(by_colors)
   if (output == TRUE) return(by_colors)  
 }
-
-# CreateColorsByBehavior Function ------------------------------------------------------
-
-###  Creates and/or displays dataframe of behaviors and their associated colors 
-###  Usage: CreateColorsByBehavior(output, display)
-###  Arguments: output = logical, whether or not to return the dataframe 
-###             plot = logical, whether or not to display names and colors
-###  Returns: df with behavior names and hexidecimal colors          
-###  Notes: Used in several other functions, including: ExportKMLTelemetry(),
-###    PlotBehaviorProportionBar(), PlotBehaviorProportionLine()
-###  Blake Massey
-###  2014.10.06
-
-CreateColorsByBehavior <- function(output = TRUE, 
-                                 plot = FALSE){
-  source('C:/Work/R/Functions/gis.R')
-  behavior_colors <- c("arrive" = "#009933", #green
-                       "cruise" = "#0000ff", #blue
-                       "depart"= "#009900", #green
-                       "forage" = "#FF0000", #red
-                       "flight" = "#FF0000", #red
-                       "loaf" = "#663300", #brown
-                       "nest" = "#FFFF00",  #yellow
-                       "roost" = "#00CC00", #green
-                       "NA" = "#888888") #gray 
-  if (plot == TRUE) { 
-    PlotColorPie(behavior_colors)
-  }
-  if (output == TRUE) {
-    return(behavior_colors)
-  }
-}
-
-# CreateColorsByID Function (deprecated) ---------------------------------------
-
-###  Creates and/or displays dataframe of IDs and their associated colors 
-###  Usage: CreateColorsByID(output, display)
-###  Arguments: output = logical, whether or not to return the dataframe 
-###             plot = logical, whether or not to display names and colors
-###             id_type = either "deploy_location"(default) or "serial"
-###             metadata = .csv file with columns for id and icon_color
-###               default is "C:/Work/R/Data/BAEA/BAEA_gps_data.csv"
-###  Returns: df with ID names and hexidecimal colors          
-###  Notes: Used in several other functions
-###  Blake Massey
-###  2014.10.21
-
-CreateColorsByID <- function(output = TRUE, 
-                            plot = FALSE,
-                            id_type = "deploy_location",
-                            metadata = "C:/Work/R/Data/BAEA/BAEA_gps_data.csv"){
-  source('C:/Work/R/Functions/gen.R')
-  source('C:/Work/R/Functions/gis.R')  
-  metadata<-read.csv(metadata, header=TRUE, as.is=TRUE, na.strings = "")
-  if (!("id" %in% colnames(metadata))){  
-    metadata$id <- metadata[,id_type]   # id_type = serial or deploy_location
-  if (id_type == "serial"){ # specific to BAEA project
-    metadata <- subset(metadata, is.na(deploy_location))  # not deployed 
-  } else {  # specific to BAEA project
-    metadata <- subset(metadata, !is.na(deploy_location))  # only deployed
-  }
-  row.names(metadata)<-NULL
-  }  
-  id_colors <- metadata$icon_color   
-  names(id_colors) <- metadata$id 
-  if (plot == TRUE) { 
-    PlotColorPie(id_colors)
-  }
-  if (output == TRUE) {
-    return(id_colors)
-  }
-}
-
-# # CreateColorsByMetadata (moved) Function ----------------------------------------------
-# 
-# ###  Creates and/or displays dataframe of IDs and their associated colors 
-# ###  Usage: CreateColorsByMetadata(file = ,output, display)
-# ###  Arguments: file = CSV file with columns for "id" and "icon_color"
-# ###             id = column name for unique identifier, default is "id"
-# ###  Returns: df with ID names and hexidecimal colors          
-# ###  Notes: Used in several other functions
-# ###  Blake Massey
-# ###  2014.10.21
-# 
-# CreateColorsByMetadata <- function(file,
-#                                   id = "id"){
-#   source('C:/Work/R/Functions/gen.R')
-#   source('C:/Work/R/Functions/gis.R')
-#   metadata <- read.csv(file, header=TRUE, as.is=TRUE, na.strings = "")  
-#   metadata$id <- metadata[,id] 
-#   id_colors <- metadata$icon_color   
-#   names(id_colors) <- metadata$id 
-#   return(id_colors)
-# }
-
-# CreateColorsBySex Function ----------------------------------------------------
-
-###  Creates and/or displays dataframe of sex and the associated colors
-###  Usage: CreateColorsBySex(output, display)
-###  Arguments: output = logical, whether or not to return the dataframe 
-###             plot = logical, whether or not to display names and colors
-###  Returns: df with sex and hexidecimal colors 
-###  Notes: Used in several other functions
-###  Blake Massey
-###  2014.11.04
-
-CreateColorsBySex <- function(output = TRUE, 
-                             plot = FALSE){
-  sex_colors <- c("#0000FF","#FF0000" )
-#  sex_colors <- c("#FF00FF","#0000FF" )  # sterotypical pink and blue
-  names(sex_colors) <-c("female", "male")
-  if (plot == TRUE) { 
-    PlotColorPie(sex_colors)
-  }
-  if (output == TRUE) {
-    return(sex_colors)
-  }
-}
-
-# # CreateColorsByVar (moved) Function ----------------------------------------------------
-# 
-# ###  Creates and/or displays dataframe of a variable and the associated colors 
-# ###  Usage: CreateColorsByVar(df, by, b_pal, r_pal_num, pal, ouput, display)
-# ###  Arguments: df = dataframe that contains the variable 
-# ###             by = column name of variable used to create colors. Specific 
-# ###               outcomes for: "behavior", "id", or "sex". Otherwise, it  
-# ###               creates a palette based on variable length and 'b_pal','pal', 
-# ###               or r_pal_num.
-# ###             pal = name of color palette funtions (e.g., "rainbow", 
-# ###               "heat.colors", "terrain.colors, "topo.colors", "cm.colors"
-# ###               used to create colors. This parameter has priority over the 
-# ###               other color palette parameters. Default is NULL
-# ###             r_pal = Specifc number of 'R-pal' color palette from the PlotKML
-# ###               Package (e.g., 1 = R_pal[[1]]). This parameter has priority 
-# ###               over the 'b_pal' parameter for setting the colors. Default is 
-# ###               NULL.
-# ###             b_pal = color palette name from RColorBrewer package, default is  
-# ###               "Set1". Automatically adjusts number of colors to match
-# ###               the unique number of factors in the "by" parameter column of 
-# ###               the df.
-# ###             output = logical, whether or not to return the dataframe 
-# ###             plot = logical, whether or not to display names and colors
-# ###  Returns: df with "by" names and a unique hexidecimal color for each one 
-# ###  Notes: Used in several other functions. Color palette can either be a 
-# ###    typical palette (e.g. rainbow, heat.heat.colors, terrain,colors, ) using
-# ###    'pal' parameter or a RColorBrewer palette using 'r_pal' parameter, or a
-# ###    RColorBrewer palette using "b_pal" parameter (e.g. "Accent"). The 
-# ###    number of colors is always automatically adjusted to match the unique 
-# ###    number of factors in the "by" parameter column of the df.
-# ###  Blake Massey
-# ###  2014.11.20
-# 
-# 
-# CreateColorsByVar <- function (df,
-#                               by = NULL,
-#                               pal = NULL,
-#                               r_pal = NULL,
-#                               b_pal = "Set1",
-#                               output = TRUE,
-#                               plot = FALSE) {
-#   suppressPackageStartupMessages(require(graphics))
-#   suppressPackageStartupMessages(require(plotKML))
-#   suppressPackageStartupMessages(require(RColorBrewer))
-#   source('C:/Work/R/Functions/gen.R')
-#   if(is.null(by)){ 
-#     var_colors <- c("all" = "#377EB8")  # blue from RColorBrewer's "Set1"
-#   } else {
-#   vars <- unique(df[,by])
-#   vars_n <- as.numeric(length(unique(df[,by])))
-#   }
-#   PalFunction <- function(x, fun) {
-#     fun(x)
-#   }
-#   if (!is.null(pal)) var_colors <- PalFunction(vars_n, pal)
-#   if (is.null(pal) && (!is.null(r_pal))) { 
-#     var_colors <- colorRampPalette(R_pal[[r_pal]])(vars_n)
-#   }
-#   if (is.null(pal) && (is.null(r_pal))) {
-#     ifelse(vars_n <= 8, var_colors <- brewer.pal(vars_n,b_pal), var_colors <- 
-#       colorRampPalette(brewer.pal(vars_n,b_pal))(vars_n))
-#   }
-#   for (i in 1:length(vars)) {
-#     names(var_colors)[i] <- vars[i] 
-#   }
-#   if (plot == TRUE) { 
-#     PlotColorPie(var_colors)
-#   }
-#   if (output == TRUE) {
-#     return(var_colors)
-#   }
-# }
 
 # ExtractFlightData Function ---------------------------------------------------
 
@@ -955,42 +822,42 @@ PlotBehaviorProportionLine<-function(df = df,
     y="Behavior Proportion", title="Daily Behavior Distributions") 
 }
 
-# PlotFlightSpeed Function ---------------------------------------------------
+# PlotFlightSpeed Function (deprecated) ----------------------------------------
 
-###  Plots a histogram of the speed of flights for each bird  
-###  Usage: PlotFlightSpeed(df)
-###  Arguments: df = dataframe with flights
-###             id = column name of unique identifier, default = "id"
-###  Returns: a plot with a normal distribution fitted for each id          
-###  Notes: 
-###  Blake Massey
-###  2014.10.20  
-  
-PlotFlightSpeed <- function(df,
-                            id = "id") {
-  source('C:/Work/R/Functions/gen.R')
-  source('C:/Work/R/Functions/baea.R')
-  df <- df
-  sum_flight <- SummarizeSE(df, "speed", "id")
-  id_colors <- CreateColorsByID(output=TRUE)  
-  grid <- with(df, seq(min(speed), max(speed), length = 100))
-  normaldens <- ddply(df, id, function(df) {
-    data.frame(speed = grid, density = dnorm(grid, mean(df$speed),sd(df$speed)))
-    })  
-  g <- ggplot(df, aes(x = speed, fill=id)) + facet_wrap( ~ id)  +
-    scale_fill_manual(values=id_colors) +
-    theme(legend.position="none") +
-    theme(plot.title=element_text(size=22)) +
-    theme(text=element_text(size=20, colour="black")) +
-    theme(axis.text=element_text(colour="black")) + 
-    xlab("Speed") + ylab("Density") 
-  g + geom_bar(aes(y = ..density.., fill=id), colour="black", binwidth = 2) +
-    geom_text(aes(x=speed+20, y=0.05, label=paste("mean: ", signif(speed,3),
-      "\n","sd: ",signif(sd,3), sep="")), data=sum_flight) +
-    geom_line(aes(y = density), colour="black", size=1, data = normaldens)
-}
+# ###  Plots a histogram of the speed of flights for each bird  
+# ###  Usage: PlotFlightSpeed(df)
+# ###  Arguments: df = dataframe with flights
+# ###             id = column name of unique identifier, default = "id"
+# ###  Returns: a plot with a normal distribution fitted for each id          
+# ###  Notes: 
+# ###  Blake Massey
+# ###  2014.10.20  
+#   
+# PlotFlightSpeed <- function(df,
+#                             id = "id") {
+#   source('C:/Work/R/Functions/gen.R')
+#   source('C:/Work/R/Functions/baea.R')
+#   df <- df
+#   sum_flight <- SummarizeSE(df, "speed", "id")
+#   id_colors <- CreateColorsByID(output=TRUE)  
+#   grid <- with(df, seq(min(speed), max(speed), length = 100))
+#   normaldens <- ddply(df, id, function(df) {
+#     data.frame(speed = grid, density=dnorm(grid, mean(df$speed),sd(df$speed)))
+#     })  
+#   g <- ggplot(df, aes(x = speed, fill=id)) + facet_wrap( ~ id)  +
+#     scale_fill_manual(values=id_colors) +
+#     theme(legend.position="none") +
+#     theme(plot.title=element_text(size=22)) +
+#     theme(text=element_text(size=20, colour="black")) +
+#     theme(axis.text=element_text(colour="black")) + 
+#     xlab("Speed") + ylab("Density") 
+#   g + geom_bar(aes(y = ..density.., fill=id), colour="black", binwidth = 2) +
+#     geom_text(aes(x=speed+20, y=0.05, label=paste("mean: ", signif(speed,3),
+#       "\n","sd: ",signif(sd,3), sep="")), data=sum_flight) +
+#     geom_line(aes(y = density), colour="black", size=1, data = normaldens)
+# }
 
-# PlotStepLengths Function -------------------------------------------------------
+# PlotStepLengths Function -----------------------------------------------------
 
 ###  Plots a histogram of the step-lengths for each bird  
 ###  Usage: PlotStepLengths(df)

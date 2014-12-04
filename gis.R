@@ -54,7 +54,8 @@ AddLandscapeValues <- function(df,
       nlcd_classes <- read.csv(file.path("C:/ArcGIS/Data/Landcover",
         "NCLD_Landcover_Class_Definitions.csv"), header=TRUE, as.is=TRUE, 
         na.strings = "") 
-      df <- join(df, nlcd_classes)
+   #   if(is.integer(nlcd_classes$lc)) nlcd_classes$lc <- as.numeric(nlcd_classes$lc)
+      df <- plyr::join(x=df, y=nlcd_classes, by="lc")
       df$definition <- NULL
     }
   }
@@ -78,7 +79,7 @@ AddLandscapeValues <- function(df,
 
 CreateArcGISMaps <- function(df = df){
   write.csv(df, file="C:/Work/Python/Data/CSV/BAEA.csv", row.names=FALSE)
-  system('python C:/Work/Python/Scripts/BAEA_Create_ArcGIS_Maps.py')
+  system('python C:/Work/Python/Scripts/BAEA/Create_ArcGIS_Maps.py')
 }
 
 # CreateArcGISandPDFMaps Function ----------------------------------------------
@@ -94,7 +95,7 @@ CreateArcGISMaps <- function(df = df){
 
 CreateArcGISandPDFMaps <- function(df = df){
   write.csv(df, file="C:/Work/Python/Data/CSV/BAEA.csv", row.names=FALSE)
-  system('python C:/Work/Python/Scripts/BAEA_Create_ArcGISandPDF_Maps.py')
+  system('python C:/Work/Python/Scripts/BAEA/Create_ArcGISandPDF_Maps.py')
 }
 
 # CreateCategoricalLegend Function ---------------------------------------------

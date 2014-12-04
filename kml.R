@@ -10,17 +10,17 @@
 ###  2014.10.21
 
 CreateColorsByMetadata <- function(file,
-                                   id = "id"){
+                                   metadata_id = "id"){
   source('C:/Work/R/Functions/gen.R')
   source('C:/Work/R/Functions/gis.R')
   metadata <- read.csv(file, header=TRUE, as.is=TRUE, na.strings = "")  
-  metadata$id <- metadata[,id] 
+  metadata$id <- metadata[ ,metadata_id] 
   id_colors <- metadata$icon_color   
   names(id_colors) <- metadata$id 
   return(id_colors)
 }
 
-# CreateColorsByVar Function ----------------------------------------------------
+# CreateColorsByVar Function ---------------------------------------------------
 
 ###  Creates dataframe of a variable and the associated colors 
 ###  Usage: CreateColorsByVar(df, by, b_pal, r_pal_num, pal, ouput, display)
@@ -48,7 +48,7 @@ CreateColorsByMetadata <- function(file,
 ###    number of colors is always automatically adjusted to match the unique 
 ###    number of factors in the "by" parameter column of the df.
 ###  Blake Massey
-###  2014.11.20
+###  2014.11.26
 
 
 CreateColorsByVar <- function (df,
@@ -67,7 +67,6 @@ CreateColorsByVar <- function (df,
   } else {
   vars <- unique(df[,by])
   vars_n <- as.numeric(length(unique(df[,by])))
-  }
   PalFunction <- function(x, fun) {
     fun(x)
   }
@@ -81,6 +80,7 @@ CreateColorsByVar <- function (df,
   }
   for (i in 1:length(vars)) {
     names(var_colors)[i] <- vars[i] 
+  }
   }
   return(var_colors)
 }
@@ -127,6 +127,9 @@ CreateColorsByVar <- function (df,
 ###               default is "Set1". Automatically adjusts number of colors to 
 ###               match the unique number of factors in the 'point_color' 
 ###               column of the input dataframe.
+###             extrude = logical, either FALSE (default) for no line, or TRUE 
+###               which extends a line from the point to the ground.
+###             path = logical, to create Track paths. Default is TRUE.
 ###             path_color = similar to 'point_color' parameter, but the value
 ###               must have the same factor level structure as the id file, 
 ###               because each path is constructed for each id factor.
@@ -134,24 +137,22 @@ CreateColorsByVar <- function (df,
 ###             path_metadata = location of metadata .csv file. Metadata file 
 ###               must have a column that matches name of 'path_color'
 ###               parameter and an "icon_color" column with hexadecimal colors.
-###             point_pal = name of color palette funtions (e.g., rainbow, 
+###             path_pal = name of color palette funtions (e.g., rainbow, 
 ###               heat.colors, terrain.colors, topo.colors, cm.colors
 ###               used to create colors. This parameter has priority over the 
 ###               other point color palette parameters. Default is NULL.
-###             point_r_pal = Specifc number of 'R_pal' color palette from the 
+###             path_r_pal = Specifc number of 'R_pal' color palette from the 
 ###               'PlotKML' Package (e.g., 1 = R_pal[[1]]). This parameter has 
 ###               priority over the 'b_pal' parameter for setting the colors. 
 ###               Default is NULL.
-###             point_b_pal = color palette name from RColorBrewer package, 
+###             path_b_pal = color palette name from RColorBrewer package, 
 ###               default is "Set1". Automatically adjusts number of colors to 
 ###               match the unique number of factors in the 'point_color' 
 ###               column of the input dataframe.
-###             path = logical, to create Track paths. Default is TRUE.
-###             extrude = either 0 (default) or 1. 0 is for no line, 
-###               1 extends a line from the point to the ground. 
-###             kml_folder = name for folder in the KML file 
-###             outfile = location of output KML file, default is working 
-###               directory
+###             kml_folder = name for folder in the KML file, default is name of 
+###               'df' parameter
+###             outfile = filepath of output KML file, default is working 
+###               directory and name of 'df' parameter
 ###             labelscale = adjusts the size of the Google Earth location 
 ###               point labels. Default is 0, which hides the labels. To show 
 ###               labels, change to a value between 0.7-1.
@@ -181,28 +182,48 @@ ExportKMLTelemetry <- function (df,
                                 point_pal = NULL,
                                 point_r_pal = NULL,
                                 point_b_pal = "Set1", 
+                                extrude = FALSE,
                                 path = TRUE,
-                                extrude = 0,
                                 path_color = NULL,
                                 path_metadata = NULL,
                                 path_pal = NULL,
                                 path_r_pal = NULL,
                                 path_b_pal = NULL,
-                                icon_by_sex = FALSE,                             
+                                arrow = TRUE,
+                                icon_by_sex = FALSE,
                                 labelscale = 0, 
                                 dateformat = "%Y-%m-%d", 
                                 timeformat = "%I:%M %p",
                                 datetimeformat = "%Y-%m-%d %I:%M %p",
                                 outfile = NULL,
-                                kml_folder = "Telemetry Data") {
+                                kml_folder = NULL) {
   suppressPackageStartupMessages(require(plotKML))
-  df <- df
-  if (is.null(outfile)) outfile <- file.path(getwd(),"Telemetry.kml") 
-  if (is.null(point_color)) point_color <- id
-  if (is.null(path_color)) path_color <- id
-  if (is.null(path_b_pal)) path_b_pal <- point_b_pal
+  suppressPackageStartupMessages(require(tools))
+  if (is.null(kml_folder) == TRUE) {
+    if (!is.null(outfile)) {
+      kml_folder <- basename(outfile)
+      kml_folder <- sub(".kml", "", kml_folder, ignore.case =TRUE)
+      kml_folder <- sub(".kmz", "", kml_folder, ignore.case =TRUE)
+    } else {
+      kml_folder <- deparse(substitute(df))
+    }
+  }
+  if (is.null(outfile)) {
+    if (!is.null(kml_folder)) {
+      outfile <- paste(getwd(), "/", kml_folder, sep="")
+      } else {
+        outfile <- paste(getwd(), "/", deparse(substitute(df)), sep="")
+      }
+  } else {
+    if (dirname(outfile) == "."){
+      outfile <- paste(getwd(), "/", outfile, sep="") 
+    }
+  }
+  if (file_ext(outfile) == "") {
+    outfile <- paste(outfile, ".kml", sep="")  # if object has no extension
+  } 
+  df <- df 
   df$id <- df[ ,id]  
-  df$point_color <- df[ ,point_color]
   df$lat <- df[ ,lat]  
   df$long <- df[ ,long] 
   if (!is.null(alt)){
@@ -233,7 +254,7 @@ ExportKMLTelemetry <- function (df,
     spd2 <- NULL  # prevents "Speed" description from being written    
   }
   if (!is.null(behavior)) {
-    df$desc_behavior <- df[,behavior]  # writes behavior to the "behavior" column
+    df$desc_behavior <- df[,behavior]  # writes behavior to "behavior" column
     beh1 <- '\t\t\t\t\tBehavior: '  # first part of the "Behavior" description
     beh2 <- '\n'  # second part of the "Behavior" description
   } else {
@@ -248,12 +269,12 @@ ExportKMLTelemetry <- function (df,
     data$datetime2 <- data$datetime[c(2:length(data$datetime), 
     length(data$datetime))]
   } 
-  id <- as.character(df$id)  # as.character removes factor levels
-  df_split <- split(df, id)  # divides data by ids 
+  ids <- as.character(df$id)  # as.character removes factor levels
+  df_split <- split(df, ids)  # divides data by ids 
   df_split <- lapply(df_split, EndTimes)
-  datetimeend <- unsplit(df_split, id)  # returns array of returned values
+  datetimeend <- unsplit(df_split, ids)  # returns array of returned values
   df <- cbind(df, datetimeend)  # adds datetimeend column to original baea data
-
+  ifelse(extrude == TRUE, extrude <- 1, extrude <- FALSE)
   PlacemarkPoint <- function(PN, X,  Y, Z, ZD, 
                              AG, SP, BH, SX, PS, 
                              ID, SD, ST, ED, ET, 
@@ -296,19 +317,17 @@ ExportKMLTelemetry <- function (df,
   "<Document>\n", "\t<name>",kml_folder,"</name>\n",file = outfile, 
   append = FALSE, sep = "") 
   ## Icon Style Section ##  
-  if (is.null(point_color)) point_color <- "id" 
+  if (is.null(point_color)) point_color <- id
+  df$point_color <- df[ ,point_color]
   if (!is.null(point_metadata)) {
-    point_colors <- CreateColorsByMetadata(file=point_metadata, id=point_color)
+    point_colors <- CreateColorsByMetadata(file=point_metadata, 
+      metadata_id=point_color)
     point_colors <- subset(point_colors, names(point_colors) %in% 
       unique(df$point_color))
   } else {
     suppressWarnings(point_colors <- CreateColorsByVar(by=point_color, df=df, 
       pal=point_pal, r_pal=point_r_pal, b_pal=point_b_pal))
   }  
-  ############################ FOR BAEA ONLY ###################################
-  if (point_color == "sex") point_colors <- CreateColorsBySex()
-#  if (point_color == "behavior") point_colors <- CreateColorsByBehavior() 
-  ##############################################################################
   if (icon_by_sex == TRUE) {  
     point_colors_names <- c(sapply(names(point_colors), paste0, "-female"), 
       sapply(names(point_colors), paste0,"-male"))
@@ -318,7 +337,6 @@ ExportKMLTelemetry <- function (df,
   point_colors <- sapply(point_colors, col2kml)
   point_colors <- sapply(point_colors, substring, 4, 9)
   df$point_color <-df[,point_color]
-  
   icon_scale <- 0.7
   hi_icon_label_scale <- 0.75
   ball_bg_color <- "ff333333"
@@ -379,7 +397,8 @@ ExportKMLTelemetry <- function (df,
       file = outfile, append = TRUE, sep = "")
   } 
   if (path ==TRUE) {
-#    if (is.null(path_color)) path_color <- id
+    if (is.null(path_color)) path_color <- id
+    if (is.null(path_b_pal)) path_b_pal <- point_b_pal
     if (!is.null(path_metadata)) {
       path_colors <- CreateColorsByMetadata(file=path_metadata, id=path_color)
       path_colors <- subset(path_colors, names(path_colors) %in% 
@@ -388,9 +407,6 @@ ExportKMLTelemetry <- function (df,
       suppressWarnings(path_colors <- CreateColorsByVar(by=path_color, df=df, 
         pal=path_pal, r_pal=path_r_pal, b_pal=path_b_pal))
     }  
-  ############################ FOR BAEA ONLY ###################################
-    if (path_color == "sex") path_colors <- CreateColorsBySex()  
-  ##############################################################################
     path_colors <- sapply(path_colors, col2kml)
     path_colors <- sapply(path_colors, substring, 4, 9)
     if (icon_by_sex == TRUE) {  
@@ -399,6 +415,7 @@ ExportKMLTelemetry <- function (df,
       path_colors <- rep(path_colors, 2)
       names(path_colors) <- path_colors_names  
     }
+    ifelse(arrow == TRUE, arrow <- 1, arrow <- 0)
   ## Style Map for Track ##
     for (i in 1:length(path_colors)) {    
       cat("\t<StyleMap id=\"Track_",names(path_colors)[i],"\">\n",
@@ -409,7 +426,7 @@ ExportKMLTelemetry <- function (df,
       "\t\t\t\t\t<scale>0</scale>\n",  # to show label 
       "\t\t\t\t\t</LabelStyle>\n",
       "\t\t\t<IconStyle>\n",
-      "\t\t\t\t<scale>1</scale>\n",
+      "\t\t\t\t<scale>",arrow,"</scale>\n",
       "\t\t\t\t<Icon>\n",
       "\t\t\t\t\t<href>",mt_icon_href,"</href>\n",
       "\t\t\t\t</Icon>\n",

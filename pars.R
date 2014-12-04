@@ -79,6 +79,64 @@ CreateNewPars <- function(index=TRUE,
   return(pars)
 }
 
+# DensAsymGenVonMises Function ------------------------------------------------
+
+###  Density function of an asymetric generalized von Mises
+###    probability distribtion
+###  Usage: DensGenVonMises(data, mu1, mu2, kappa1, kappa2) 
+###  Arguments: x = vector
+###             mu1 = primary direction parameter 
+###             mu2 = secondary direction parameter  
+###             kappa1 = non-negative numeric parameter of the distribution
+###             kappa2 = non-negative numeric parameter of the distribution
+###  Returns: NLL of general von Mises distribution
+###  Notes: ###  WORK IN PROGRESS! ### 
+###  Blake Massey
+###  2014.11.29
+
+DensAsymGenVonMises  <- function(x, 
+                             mu1,
+                             mu2,
+                             kappa1, 
+                             kappa2){
+    d = (mu1-mu2)%%pi
+    num <- exp(kappa1*cos(x-mu1) + kappa2*cos(2*(x-mu2)) )
+    den <- integrate(function(x){exp(kappa1*cos(x) + 
+      kappa2*cos(2*(x+d)))}, 
+      0,2*pi)$value
+    dens <- num/den
+    return(dens)
+}
+
+# DensGenVonMises Function -----------------------------------------------------
+
+###  Density function of a generalized von Mises probability distribtion
+###  Usage: DensGenVonMises(data, mu1, mu2, kappa1, kappa2) 
+###  Arguments: x = vector
+###             mu1 = primary direction parameter 
+###             mu2 = secondary direction parameter  
+###             kappa1 = non-negative numeric parameter of the distribution
+###             kappa2 = non-negative numeric parameter of the distribution
+###  Returns: NLL of general von Mises distribution
+###  Notes: use in NLL_GenVonMises()
+###  Blake Massey
+###  2014.11.29
+
+DensGenVonMises <- function(x, 
+                            mu1, 
+                            mu2, 
+                            kappa1, 
+                            kappa2){
+#    if (mu2>pi) mu2 <- mu2-(2*pi)
+    d = (mu1-mu2)%%pi
+    num <- exp(kappa1*cos(x-mu1) + kappa2*cos(2*(x-mu2)) )
+    den <- integrate(function(x){exp(kappa1*cos(x) + 
+      kappa2*cos(2*(x+d)))}, 
+      0,2*pi)$value
+    dens <- num/den
+    return(dens)
+}
+
 # ExtractParsBySex Function ---------------------------------------------------
 
 ###  Returns a dataframe of pars values 
@@ -345,6 +403,198 @@ FitDeparture <- function(data=data,
   return(z)
 }
 
+# FitGenVonMisesDensityToArray Function --------------------------------------
+
+###  Fit generalized von Mises probability distribution to an array of x values
+###  Usage: FitGenVonMisesDensityToArray(df, var, pars)
+###  Arguments: var = variable fitted with generalized von Mises distribution
+###             pars = parameters of gernalized von Mises distribution, created 
+###               by FitGenVonMisesParsToData()
+###  Returns: probability densities of a generalized von Mises distribution 
+###    along an array of values
+###  Notes: x-axis is set to have 359 values, starting with 1
+###  Blake Massey
+###  2014.11.29
+
+FitGenVonMisesDensityToArray <- function(var,
+                                           pars) {
+  suppressPackageStartupMessages(require(stats))
+  suppressPackageStartupMessages(require(circular))
+  x <- seq((2*pi/360), 2*pi, by=(2*pi/360))
+  dens <- data.frame(by=rep(pars[,1], each=length(x)),
+                   x=rep(x, time=length(pars[,1])),
+                   y=NA, stringsAsFactors=FALSE)
+  bys <- unique(pars[,1])
+  for (i in bys){
+    dens[which(dens$by==i),"y"] <- DensGenVonMises(x, mu1=pars[which(pars[,1] 
+      ==i), "mu1"], mu2=pars[which(pars[,1] == i), "mu2"], kappa1=pars[which(
+      pars[,1] == i), "kappa1"], kappa2=pars[which(pars[,1] == i), "kappa2"])
+  }
+  names(dens)[names(dens) == 'by'] <- names(pars)[1]
+  return(dens)
+}
+
+# FitGenVonMisesParsToData Function --------------------------------------------
+
+###  Fits a generalized von Mises distribution to data
+###  Usage: FitGenVonMisesParsToData(df, by, var, mu1, mu2, kappa1, kappa2)
+###  Arguments: df = dataframe 
+###             by = column to subset data
+###             var = variable to fit generalized von Mises distribution
+###             mu1 = primary direction parameter 
+###             mu2 = secondary direction parameter  
+###             kappa1 = non-negative numeric parameter of the distribution
+###             kappa2 = non-negative numeric parameter of the distribution
+###  Returns: dataframe of "by" variable and parameters  
+###  Notes:
+###  Blake Massey
+###  2014.11.29
+
+FitGenVonMisesParsToData <- function(df, 
+                                     var,
+                                     by = NULL,
+                                     mu1 = 3*pi/2,
+                                     mu2 = pi/2, 
+                                     kappa1 = .5,
+                                     kappa2 = .5) {
+  suppressPackageStartupMessages(require(circular))
+  suppressPackageStartupMessages(require(bbmle))
+  df <- df
+  ifelse(is.null(by), df$by<-"all", df$by <- df[,by])
+  vars <- unique(df$by)
+  pars <- data.frame(by=vars, mu1=NA, mu2=NA, kappa1=NA, kappa2=NA, 
+    stringsAsFactors=FALSE)  
+  for (i in vars){
+    data  <- subset(df, by == i, select = var, rm.na=TRUE)
+    data <- data[!is.na(data)]
+    if (length(data) >  1000) data <- sample(data, 800)
+#     if (is.null(mu1)) {
+#       mu1 <- mean.circular(data)
+#       ifelse(mu1 < pi, mu1 <- mu1+pi, mu2 <- mu1-pi)
+#     }
+    suppressWarnings(pars_i <- mle2(NLLGenVonMises, start=list(mu1=mu1, 
+      mu2=mu2, kappa1=kappa1, kappa2=kappa2), data=list(data=data)))
+    pars[which(pars$by==i), "mu1"] = coef(pars_i)[1]
+    pars[which(pars$by==i), "mu2"] = coef(pars_i)[2]
+    pars[which(pars$by==i), "kappa1"] = coef(pars_i)[3]
+    pars[which(pars$by==i), "kappa2"] = coef(pars_i)[4]
+  }
+  names(pars)[names(pars) == 'by'] <- by
+  return(pars)
+}
+
+# FitNormalDensityToArray Function --------------------------------------
+
+###  Fit Normal Probability Density Function to an array of x values
+###  Usage: FitNormalDensityToArray(df, var, pars, xlim)
+###  Arguments: df = dataframe with data
+###             var = variable fitted with Pareto distribution
+###             pars = parameters of Pareto distribution, created by 
+###               FitNormalParsToData()
+###             xlim = sets xlim max, default is: max(df[,var])
+###  Returns: probability densities of a normal distribution along an array of 
+###    values
+###  Notes: x-axis is set to have 500 values, starting with: min(df[, var])+1
+###  Blake Massey
+###  2014.11.06
+
+FitNormalDensityToArray <- function(df,
+                                    var,
+                                    pars, 
+                                    xlim = NULL) {
+  suppressPackageStartupMessages(require(stats))
+  suppressPackageStartupMessages(require(VGAM))
+  start <- min(df[, var])+1
+  if (is.null(xlim)){
+    end <- max(df[, var])
+    x <- seq(start, end, length=500)
+  } else {
+    x <- seq(start, xlim, length=500)
+  }
+  dens <- data.frame(by=rep(pars[,1], each=length(x)), x=rep(x, 
+    time=length(pars[,1])), y=NA, stringsAsFactors=FALSE)
+  bys <- unique(pars[,1])
+  for (i in bys){
+  dens[which(dens$by == i), "y"] <- dnorm(x, mean=pars[which(pars[,1]==i),
+    "mean"], sd=pars[which(pars[,1] == i),"sd"])
+  }
+  names(dens)[names(dens) == 'by'] <- names(pars)[1]
+  return(dens)
+}
+
+# FitNormalParsToData Function ------------------------------------------
+
+###  Fits a normal distribution to data
+###  Usage: FitNormalParsToData(df, by, var, mu, rho)
+###  Arguments: df = dataframe 
+###             by = column to subset data 
+###             var = variable to fit Wrapped Normal distribution
+###             mu = starting value of mu, default is 1
+###             rho = starting value of rho, default is 0
+###  Returns: dataframe of "by" variable and parameters  
+###  Notes:
+###  Blake Massey
+###  2014.11.12
+
+FitNormalParsToData <- function(df, 
+                                var,
+                                by = NULL) {
+  suppressPackageStartupMessages(require(MASS))
+  df <- df
+  ifelse(is.null(by), df$by<-"all", df$by <- df[,by])
+  vars <- unique(df$by)
+  pars <- data.frame(by=vars, mean=NA, sd=NA, stringsAsFactors=FALSE)  
+  for (i in vars){
+    data  <- subset(df, by == i, select = var, rm.na=TRUE)
+    data <- data[!is.null(data)]
+    pars_i <- fitdistr(data[ ,var], "normal")
+    pars[which(pars$by==i), "mean"] = as.numeric(pars_i$estimate[["mean"]])
+    pars[which(pars$by==i), "sd"] = as.numeric(pars_i$estimate[["sd"]])
+  }
+  names(pars)[names(pars) == 'by'] <- by
+  return(pars)
+}
+
+# FitParetoDensityToArray Function ---------------------------------------------
+
+###  Fit Pareto Probability Density Function to an array of x values
+###  Usage: FitParetoDensityToArray(df, var, pars, xlim)
+###  Arguments: df = dataframe with data
+###             var = variable fitted with Pareto distribution
+###             pars = parameters of Pareto distribution, created by 
+###               FitParetoParsToData()
+###             xlim = sets xlim max, default is: max(df[,var])
+###  Returns: probability densities of a Pareto distribution along an array of 
+###    values
+###  Notes: x-axis is set to have 500 values, starting with: min(df[, var])+1
+###  Blake Massey
+###  2014.11.06
+
+FitParetoDensityToArray <- function(df,
+                                    var,
+                                    pars, 
+                                    xlim = NULL) {
+  suppressPackageStartupMessages(require(stats))
+  suppressPackageStartupMessages(require(VGAM))
+  start <- min(df[, var])+1
+  if (is.null(xlim)){
+    end <- max(df[, var])
+    x <- seq(start, end, length=500)
+  } else {
+    x <- seq(start, xlim, length=500)
+  }
+  dens <- data.frame(by=rep(pars[,1], each=length(x)), x=rep(x, 
+    time=length(pars[,1])), y=NA, stringsAsFactors=FALSE)
+  bys <- unique(pars[,1])
+  for (i in bys){
+  dens[which(dens$by == i), "y"] <- dgpd(x, location=pars[which(pars[,1] == i),
+    "location"], scale=pars[which(pars[,1]==i),"scale"], shape=
+    pars[which(pars[,1] == i),"shape"])
+  }
+  names(dens)[names(dens) == 'by'] <- names(pars)[1]
+  return(dens)
+}
+
 # FitParetoParsToData Function -------------------------------------------------
 
 ###  Fits a generalized Pareto distribution to data
@@ -389,40 +639,31 @@ FitParetoParsToData <- function(df,
   return(pars)
 }
 
-# FitParetoDensityToArray Function ---------------------------------------------
+# FitWrappedCauchyDensityToArray Function --------------------------------------
 
-###  Fit Pareto Probability Density Function to an array of x values
-###  Usage: FitParetoDensityToArray(df, var, pars, xlim)
-###  Arguments: df = dataframe with data
-###             var = variable fitted with Pareto distribution
-###             pars = parameters of Pareto distribution, created by 
-###               FitParetoParsToData()
-###             xlim = sets xlim max, default is: max(df[,var])
-###  Returns: density distributions of Pareto along an array of x values
-###  Notes: x-axis is set to have 500 values, starting with: min(df[, var])+1
+###  Fit Wrapped Cauchy Probability Density Function to an array of x values
+###  Usage: FitWrappedCauchyDensityToArray(df, var, pars)
+###  Arguments: var = variable fitted with Wrapped Cauchy distribution
+###             pars = parameters of Wrapped Cauchy distribution, created by 
+###               FitWrappedCauchyToData()
+###  Returns: probability densities of a Wrapped Cauchy distribution along an 
+###    array of values
+###  Notes: x-axis is set to have 359 values, starting with 1
 ###  Blake Massey
-###  2014.11.06
+###  2014.11.12
 
-FitParetoDensityToArray <- function(df,
-                                    var,
-                                    pars, 
-                                    xlim = NULL) {
+FitWrappedCauchyDensityToArray <- function(var,
+                                           pars) {
   suppressPackageStartupMessages(require(stats))
-  suppressPackageStartupMessages(require(VGAM))
-  start <- min(df[, var])+1
-  if (is.null(xlim)){
-    end <- max(df[, var])
-    x <- seq(start, end, length=500)
-  } else {
-    x <- seq(start, xlim, length=500)
-  }
-  dens <- data.frame(by=rep(pars[,1], each=length(x)), x=rep(x, 
-    time=length(pars[,1])), y=NA, stringsAsFactors=FALSE)
+  suppressPackageStartupMessages(require(CircStats))
+  x <- seq((2*pi/360), 2*pi, by=(2*pi/360))
+  dens <- data.frame(by=rep(pars[,1], each=length(x)),
+                   x=rep(x, time=length(pars[,1])),
+                   y=NA, stringsAsFactors=FALSE)
   bys <- unique(pars[,1])
   for (i in bys){
-  dens[which(dens$by == i), "y"] <- dgpd(x, location=pars[which(pars[,1] == i),
-    "location"], scale=pars[which(pars[,1]==i),"scale"], shape=
-    pars[which(pars[,1] == i),"shape"])
+    dens[which(dens$by==i),"y"] <- dwrpcauchy(x, mu=pars[which(pars[,1] == i),
+    "mu"], rho=pars[which(pars[,1] == i),"rho"])
   }
   names(dens)[names(dens) == 'by'] <- names(pars)[1]
   return(dens)
@@ -463,30 +704,32 @@ FitWrappedCauchyParsToData <- function(df,
   return(pars)
 }
 
-# FitWrappedCauchyDensityToArray Function --------------------------------------
+# FitWrappedNormalDensityToArray Function --------------------------------------
 
-###  Fit Wrapped Cauchy Probability Density Function to an array of x values
-###  Usage: FitWrappedCauchyDensityToArray(df, var, pars)
-###  Arguments: var = variable fitted with Wrapped Cauchy distribution
-###             pars = parameters of Wrapped Cauchy distribution, created by 
-###               FitWrappedCauchyToData()
-###  Returns: density distributions of Wrapped Cauchy along an array of x values
+###  Fit Wrapped Normal Probability Density Function to an array of x values
+###  Usage: FitWrappedNormalDensityToArray(df, var, pars)
+###  Arguments: var = variable fitted with Wrapped Normal distribution
+###             pars = parameters of Wrapped Normal distribution, created by 
+###               FitWrappedNormalToData()
+###  Returns: probability densities of a Wrapped Normal distribution along an 
+###    array of values
 ###  Notes: x-axis is set to have 359 values, starting with 1
 ###  Blake Massey
 ###  2014.11.12
 
-FitWrappedCauchyDensityToArray <- function(var,
+FitWrappedNormalDensityToArray <- function(var,
                                            pars) {
   suppressPackageStartupMessages(require(stats))
-  suppressPackageStartupMessages(require(CircStats))
+  suppressPackageStartupMessages(require(circular))
   x <- seq((2*pi/360), 2*pi, by=(2*pi/360))
   dens <- data.frame(by=rep(pars[,1], each=length(x)),
                    x=rep(x, time=length(pars[,1])),
                    y=NA, stringsAsFactors=FALSE)
   bys <- unique(pars[,1])
   for (i in bys){
-    dens[which(dens$by==i),"y"] <- dwrpcauchy(x, mu=pars[which(pars[,1] == i),
-    "mu"], rho=pars[which(pars[,1] == i),"rho"])
+  dens[which(dens$by == i),"y"] <- 
+    dwrappednormal(x, mu=pars[which(pars[,1] == i),"mu"], 
+      rho=pars[which(pars[,1]==i),"rho"])
   }
   names(dens)[names(dens) == 'by'] <- names(pars)[1]
   return(dens)
@@ -525,36 +768,6 @@ FitWrappedNormalParsToData <- function(df,
   }
   names(pars)[names(pars) == 'by'] <- by
   return(pars)
-}
-
-# FitWrappedNormalDensityToArray Function --------------------------------------
-
-###  Fit Wrapped Normal Probability Density Function to an array of x values
-###  Usage: FitWrappedNormalDensityToArray(df, var, pars)
-###  Arguments: var = variable fitted with Wrapped Normal distribution
-###             pars = parameters of Wrapped Normal distribution, created by 
-###               FitWrappedNormalToData()
-###  Returns: density distributions of Wrapped Normal along an array of x values
-###  Notes: x-axis is set to have 359 values, starting with 1
-###  Blake Massey
-###  2014.11.12
-
-FitWrappedNormalDensityToArray <- function(var,
-                                           pars) {
-  suppressPackageStartupMessages(require(stats))
-  suppressPackageStartupMessages(require(circular))
-  x <- seq((2*pi/360), 2*pi, by=(2*pi/360))
-  dens <- data.frame(by=rep(pars[,1], each=length(x)),
-                   x=rep(x, time=length(pars[,1])),
-                   y=NA, stringsAsFactors=FALSE)
-  bys <- unique(pars[,1])
-  for (i in bys){
-  dens[which(dens$by == i),"y"] <- 
-    dwrappednormal(x, mu=pars[which(pars[,1] == i),"mu"], 
-      rho=pars[which(pars[,1]==i),"rho"])
-  }
-  names(dens)[names(dens) == 'by'] <- names(pars)[1]
-  return(dens)
 }
 
 # FitRoost Function ------------------------------------------------------------
@@ -642,6 +855,29 @@ NLLBeta <- function(data,
                     shape1, 
                     shape2) {  
   -sum(dbeta(data, shape=shape1, shape2=shape2, log=TRUE))
+}
+
+# NLLGenVonMises Function -----------------------------------------------------
+
+###  General von Mises negative Log-Likelihood function
+###  Usage: NLLGenVonMises(data, mu1, mu2, kappa1, kappa2) 
+###  Arguments: data = data
+###             mu1 = primary direction parameter 
+###             mu2 = secondary direction parameter  
+###             kappa1 = non-negative numeric parameter of the distribution 
+###             kappa2 = non-negative numeric parameter of the distribution
+###  Returns: NLL of general von Mises distribution
+###  Notes: used
+###  Blake Massey
+###  2014.11.29
+
+NLLGenVonMises <- function(data,
+                           mu1, 
+                           mu2,  
+                           kappa1, 
+                           kappa2){
+  -sum(log(DensGenVonMises(x=data, mu1=mu1, mu2=mu2, kappa1=kappa1, 
+    kappa2=kappa2)))
 }
 
 # NLLPareto Function -----------------------------------------------------------
@@ -787,10 +1023,248 @@ PlotCauchyPDF <- function(location = 5,
     linetype = "longdash")
 }
 
-# PlotDataAndPareto Function ---------------------------------------------------
+# PlotHistAndGenVonMises Function ----------------------------------------------
+
+###  Plots a histogram of the data with an option to fit a generalized von Mises 
+###    distribution
+###  Usage: PlotHistAndGenVonMises (df, var, by, pars, bin_width, 
+###    fit_wrap_cauchy, fit_color)
+###  Arguments: df = dataframe of data
+###             var = variable to fit von Mises distribution
+###             by = optional, column name used to subset data, default = NULL 
+###             pars = optional, a set of parameters used in place of pars 
+###               generated within the function. Default is NULL.
+###             bin_width = bin size, default is: 15 degrees or 2*pi/24 radians 
+###             fit_gen_von_mises = logical, whether or not to fit and show  
+###               gen_von_mises distribution. Default is TRUE.
+###             fit_color = color used for von Mises fit line, quantiles, and 
+###               parameter value text. Default is "black"
+###             x_lab = name for x-axis, default is 'var'
+###  Returns: a plot of the data with a fitted von Mises distribution            
+###  Notes: Automatically adjusts plot for degrees or radians input, but all 
+###    parameter estimates are based on radians 
+###  Blake Massey
+###  2014.11.29
+                                                  
+PlotHistAndGenVonMises <- function(df, 
+                                   var,
+                                   by = NULL, 
+                                   pars = NULL, 
+                                   bin_width = NULL,             
+                                   fit_gen_von_mises = TRUE, 
+                                   fit_color = "black",
+                                   x_lab = NULL) {  
+  suppressPackageStartupMessages(require(ggplot2))
+  suppressPackageStartupMessages(require(grid))
+  source('C:/Work/R/Functions/baea.R')
+  source('C:/Work/R/Functions/gen.R')
+  source('C:/Work/R/Functions/pars.R')  
+  ifelse(max(df[,var], na.rm=TRUE) <= 2*pi, radian <- TRUE, radian <- FALSE)
+  if (is.null(x_lab)) x_lab <- var
+  if (is.null(bin_width) & radian == TRUE) bin_width = (2*pi)/24
+  if (radian == FALSE) {
+    ifelse (is.null(bin_width), bin_width <- 15*(pi/180), bin_width <- 
+      bin_width*(pi/180))
+  }
+  ifelse(is.null(by), keep <- var, keep <- c(var,by))
+  df <- subset(df, select = keep)
+  if(is.null(by)){  
+    df$by <- "all"
+    by <- "by"
+  }else{
+     df$by <- df[,by]
+  }
+  df$var <- df[,var]    
+  ifelse(radian == TRUE, df$var <- df[,var], df$var <- df[,var]*(pi/180)) 
+  by_colors <- suppressWarnings(CreateColorsByAny(by=by, df=df)) 
+  breaks <- seq(0, (2*pi), by=((2*pi)/12))
+  breaks <- breaks[-length(breaks)]
+  minor_breaks <- seq(0, 2*pi, by=bin_width)
+  limits <- c(0, 2*pi)
+  if (radian == TRUE){ 
+    labels <- round(breaks, 2) 
+  } else {
+    labels <- round(breaks*(180/pi), 2)
+  }
+  g <- ggplot(df, aes(x=var)) +
+    scale_fill_manual(values=by_colors) +
+    theme(legend.position="none") +
+    theme(text=element_text(size=20, colour="black")) +
+    theme(axis.text=element_text(colour="black")) + 
+    theme(axis.text.x = element_text(colour="grey20",size=12))+
+    theme(axis.ticks = element_blank()) +
+    xlab(x_lab) + ylab("Density") 
+  g <- g + geom_bar(aes(y = ..density.., fill=by), color="black", 
+    binwidth=bin_width) + coord_polar(start=(.5*pi)) +
+    scale_x_continuous(limits=limits, breaks=breaks, minor_breaks=minor_breaks, 
+      labels = labels) + scale_y_continuous(labels = NULL)
+  if (!is.null(by)) g <- g + facet_wrap( ~ by)
+  if (fit_gen_von_mises == TRUE) {
+    if (is.null(pars)) {
+      pars <- FitGenVonMisesParsToData(df=df, var="var", by="by")
+      if(is.null(by)){
+        pars$by <- "all"
+      } else {
+        pars[,length(pars)+1] <- pars$by
+        colnames(pars)[length(pars)] <- by
+      }
+    }   
+    dens <- suppressWarnings(FitGenVonMisesDensityToArray(var=var, pars=pars))
+    if(is.null(by)){
+      dens$by <- "all"
+    } else {
+      dens[,length(dens)+1] <- dens$by
+      colnames(dens)[length(dens)] <- by
+    }
+    g <- g + geom_line(data=dens, aes(x=x, y=y), color=fit_color, size=1)
+    build <- ggplot_build(g)    
+    pars$xmax <- max(build$panel$ranges[[1]]$theta.range)  # for geom_text 
+    pars$ymax <- max(build$panel$ranges[[1]]$r.range)  # for geom_text 
+    g <- g + geom_text(data = pars, aes(y = ymax*1, x = xmax*.635,
+      label = paste0("mu1: ", signif(mu1, 3), "\n", "mu2: ", signif(mu2, 3))), 
+      size=4.5, color = fit_color, hjust=1, vjust=-1.3)
+    g <- g + geom_text(data = pars, aes(y = ymax*1, x = xmax*.865,
+      label = paste0("kappa1: ", signif(kappa1, 2), "\n", "kappa2: ", 
+      signif(kappa2, 2))), size=4.5, color = fit_color, hjust=0, vjust=-1.3)
+  }
+  g
+}
+
+# PlotHistAndNormal Function ---------------------------------------------------
+
+###  Plots a histogram of the data with an option to fit a Normal distribution  
+###  Usage: PlotHistAndNormal((df, var, by, pars, xlim, bin_width, fit_normal,
+###           fit_color, hold_axes)
+###  Arguments: df = dataframe of data
+###             var = variable to fit Normal distribution
+###             by = optional, column name used to subset data, default = NULL 
+###             pars = optional, a set of parameters used in place of pars 
+###               generated within the function. Default is NULL.
+###             xlim = x value axis limits, if only one value is given, that is 
+###               used as the max limit. Default is NULL.
+###             bin_width = bin size, default is: x-value range/30 
+###             fit_normal = logical, whether or not to fit and show Normal 
+###               distribution. Default is TRUE.
+###             fit_color = color used for Normal fit line, quantiles, and 
+###               parameter value text. Default is "orangered"
+###             hold_axes = logical, hold axes even if parameter distribution
+###               goes off of the screen. Default is TRUE
+###  Returns: a plot with a normal distribution fitted for each 'by' factor          
+###  Notes: 
+###  Blake Massey
+###  2014.11.26  
+  
+PlotHistAndNormal <- function(df, 
+                              var,
+                              by = NULL, 
+                              pars = NULL, 
+                              xlim = NULL, 
+                              bin_width = NULL,             
+                              fit_normal = TRUE, 
+                              fit_color = "orangered",
+                              x_lab = NULL, 
+                              hold_axes = TRUE) {
+  suppressPackageStartupMessages(require(plyr))
+  suppressPackageStartupMessages(require(ggplot2))
+  source('C:/Work/R/Functions/baea.R')
+  source('C:/Work/R/Functions/kml.R')
+  source('C:/Work/R/Functions/gen.R')
+  source('C:/Work/R/Functions/pars.R')  
+  if (length(xlim) == 2) xlim <- c(min(xlim), max(xlim))
+  if (length(xlim) == 1) xlim <- c(min(df[,var], na.rm=TRUE), xlim)
+  if (is.null(xlim)) xlim <- c(min(df[,var], na.rm=TRUE), 
+    max(df[, var], na.rm=TRUE))
+  if (is.null(bin_width)) bin_width = diff(xlim)/30
+  if (is.null(x_lab)) x_lab <- var
+  ifelse(is.null(by), keep <- var, keep <- c(var,by))
+  df <- subset(df, select = keep)
+  ifelse(is.null(by),  df$by <- "all", df$by <- df[,by])
+  df$var <- df[,var] 
+  by_colors <- CreateColorsByAny(by=by, df=df) 
+  g <- ggplot(df, aes(x=var)) +
+    scale_fill_manual(values=by_colors) +
+    theme(legend.position="none") +
+    theme(text=element_text(size=20, colour="black")) +
+    theme(axis.text=element_text(colour="black")) +
+    xlab(x_lab) + ylab("Density") + 
+    scale_x_continuous(limits=xlim) +
+  geom_bar(aes(y = ..density.., fill=by), color="black", binwidth=bin_width)
+  if (!is.null(by)) g <- g + facet_wrap( ~ by)
+  ## For "hold_axes"
+  if (hold_axes == TRUE) {
+    build <- ggplot_build(g)
+    g <- g + coord_cartesian(ylim= c(min(build$panel$ranges[[1]]$y.range), 
+      max(build$panel$ranges[[1]]$y.range)))  
+  } 
+  ## Create and plot 'pars' (if fit_normal = TRUE)
+  if(fit_normal == TRUE){
+    if(is.null(pars)) pars <- FitNormalParsToData(df, var="var", by="by")
+    if(is.null(by)){
+      pars$by <- "all"
+    } else {
+      pars[,length(pars)+1] <- pars$by
+      colnames(pars)[length(pars)] <- by
+    } 
+    dens <- FitNormalDensityToArray(df=df, var=var, pars=pars)
+    if(is.null(by)){
+      dens$by <- "all"
+    } else {
+      dens[,length(dens)+1] <- dens$by
+      colnames(dens)[length(dens)] <- by
+    }
+    g <- g + geom_line(data=dens, aes(x=x, y=y), color=fit_color, size=1)
+  } 
+  ## Set axes for the rest of the plots
+  build <- ggplot_build(g)
+  xmax <- max(build$panel$ranges[[1]]$x.range)
+  ymax <- max(build$panel$ranges[[1]]$y.range)   
+  ## Create and plot 'quantiles'  
+  probs = c(0.05, 0.5, 0.95)
+  quantiles <- ddply(df, "by", function(df) quantile(df$va,probs=probs,
+    na.rm=TRUE)) 
+  colnames(quantiles)[2:(length(probs)+1)] <- paste("q",probs, sep="")  
+  quantiles$xmax <- xlim[1]+((xlim[2]-xlim[1])*.975)  # for geom_text 
+  quantiles$ymax <- ymax  # for geom_text  
+  g <- g + geom_text(data = quantiles, 
+      aes(x = c(q0.05+(abs(xmax)*0.05), q0.5+(abs(xmax)*.05), q0.95+(abs(xmax)*.05)),
+        y = c(ymax*.8, ymax*.8, ymax*.8),
+        label = c(paste("5th:","\n", signif(q0.05, 3)), 
+        paste("Median:","\n", signif(q0.5, 3)),
+        paste("95th:","\n", signif(q0.95, 3)))), 
+      color = c("black", "gray20", "gray30"), hjust=0, vjust=1) +
+    geom_vline(data = quantiles, aes(xintercept = c(q0.05, q0.5, q0.95)),
+      color = c("black", "gray20", "gray30"), size = 1,
+      linetype = c("dashed", "longdash", "dashed"))    
+  ## Plot 'pars' quantile lines and parameter value text
+  if(fit_normal == TRUE) {
+    pars$xmax <- xlim[1]+((xlim[2]-xlim[1])*.975)  # for geom_text 
+    pars$ymax <- ymax   # for geom_text 
+    g <- g + geom_text(data = pars, aes(x = xmax, y = ymax*.95,
+      label = paste("Mean: ", signif(mean,3),"\n",
+      "SD: ", signif(sd,3)), sep=""), 
+      color = fit_color, hjust=1, vjust=1) +
+      geom_vline(data = pars, aes(xintercept = 
+        c(qnorm(.05, mean=mean, sd=sd), 
+          qnorm(.5, mean=mean, sd=sd),
+          qnorm(.95, mean=mean, sd=sd))), 
+        linetype=c("dashed", "longdash", "dashed"), colour=fit_color, size=1)
+    g <- g + geom_text(data = pars,
+      aes(x = c((qnorm(.05, mean=mean,sd=sd) + (abs(xmax)*0.05)),
+        (qnorm(.5, mean=mean, sd=sd) + (abs(xmax)*0.05)),
+        (qnorm(.95, mean=mean, sd=sd)) + (abs(xmax)*0.05)), 
+         y = c(ymax*.9, ymax*.9, ymax*.9),
+      label = c(paste("5th:","\n",signif(qnorm(.05, mean=mean, sd=sd),3)), 
+      paste("Median:","\n",signif(qnorm(.5, mean=mean, sd=sd),3)),
+      paste("95th:","\n",signif(qnorm(.95, mean=mean, sd=sd),3)))), 
+    color= fit_color,hjust=0, vjust=1)
+  }
+  g
+}
+
+# PlotHistAndPareto Function ---------------------------------------------------
 
 ###  Plots a histogram of the data with an option to fit a Pareto distribution  
-###  Usage: PlotDataAndPareto(df, var, by, pars, xlim, bin_width, fit_pareto,
+###  Usage: PlotHistAndPareto(df, var, by, pars, xlim, bin_width, fit_pareto,
 ###           fit_color, hold_axes)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit Pareto distribution
@@ -810,7 +1284,7 @@ PlotCauchyPDF <- function(location = 5,
 ###  Blake Massey
 ###  2014.11.08
 
-PlotDataAndPareto <- function(df, 
+PlotHistAndPareto <- function(df, 
                               var,
                               by = NULL, 
                               pars = NULL, 
@@ -886,7 +1360,7 @@ PlotDataAndPareto <- function(df,
         paste("95th:","\n",as.integer(q0.95)))), 
       color = c("black", "gray20", "gray30"), hjust=0, vjust=1) +
     geom_vline(data = quantiles, aes(xintercept = c(q0.5, q0.75, q0.95)),
-      color = c("black", "gray20", "gray30"),
+      color = c("black", "gray20", "gray30"), size = 1,
       linetype = c("longdash", "dashed", "dotted"))  
     
   ## Plot 'pars' quantile lines and parameter value text
@@ -919,11 +1393,11 @@ PlotDataAndPareto <- function(df,
   g
 }
 
-# PlotDataAndWrappedCauchy Function --------------------------------------------
+# PlotHistAndWrappedCauchy Function --------------------------------------------
 
 ###  Plots a histogram of the data with an option to fit a wrapped Cauchy 
 ###    distribution  
-###  Usage: PlotDataAndWrappedCauchy (df, var, by, pars, bin_width, 
+###  Usage: PlotHistAndWrappedCauchy (df, var, by, pars, bin_width, 
 ###    fit_wrap_cauchy, fit_color)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit wrapped Cauchy distribution
@@ -942,7 +1416,7 @@ PlotDataAndPareto <- function(df,
 ###  Blake Massey
 ###  2014.11.14
                                                   
-PlotDataAndWrappedCauchy<- function(df, 
+PlotHistAndWrappedCauchy<- function(df, 
                                     var,
                                     by = NULL, 
                                     pars = NULL, 
@@ -955,6 +1429,7 @@ PlotDataAndWrappedCauchy<- function(df,
   source('C:/Work/R/Functions/baea.R')
   source('C:/Work/R/Functions/gen.R')
   source('C:/Work/R/Functions/pars.R')  
+  source('C:/Work/R/Functions/kml.R')
   ifelse(max(df[,var], na.rm=TRUE) <= 2*pi, radian <- TRUE, radian <- FALSE)
   if (is.null(x_lab)) x_lab <- var
   if (is.null(bin_width) & radian == TRUE) bin_width = (2*pi)/24
@@ -1018,11 +1493,11 @@ PlotDataAndWrappedCauchy<- function(df,
   g
 }
 
-# PlotDataAndWrappedNormal Function --------------------------------------------
+# PlotHistAndWrappedNormal Function --------------------------------------------
 
 ###  Plots a histogram of the data with an option to fit a wrapped normal 
 ###    distribution  
-###  Usage: PlotDataAndWrappedNormal (df, var, by, pars, bin_width, 
+###  Usage: PlotHistAndWrappedNormal (df, var, by, pars, bin_width, 
 ###    fit_wrap_cauchy, fit_color)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit wrapped Cauchy distribution
@@ -1041,7 +1516,7 @@ PlotDataAndWrappedCauchy<- function(df,
 ###  Blake Massey
 ###  2014.11.14
                                                   
-PlotDataAndWrappedNormal <- function(df, 
+PlotHistAndWrappedNormal <- function(df, 
                                      var,
                                      by = NULL, 
                                      pars = NULL, 
@@ -1065,7 +1540,7 @@ PlotDataAndWrappedNormal <- function(df,
   df <- subset(df, select = keep)
   ifelse(is.null(by),  df$by <- "all", df$by <- df[,by])    
   ifelse(radian == TRUE, df$var <- df[,var], df$var <- df[,var]*(pi/180)) 
-  by_colors <- CreateColorsByAny(by=by, df=df) 
+  by_colors <- suppressWarnings(CreateColorsByAny(by="by", df=df)) 
   breaks <- seq(0, (2*pi), by=((2*pi)/12))
   breaks <- breaks[-length(breaks)]
   minor_breaks <- seq(0, 2*pi, by=bin_width)
