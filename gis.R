@@ -2197,10 +2197,10 @@ ExportKMLWindTurbines <- function (df = file.path("C:/Work/R/Data",
   cat("</Document>\n</kml>", file = outfile, append = TRUE)
 }
 
-# ExportShapefile Function ####################################
+# ExportShapefileDF Function ###################################################
 
 ###  Exports shapefile of a dataframe's location data
-###  Usage: ExportShapefile(df, layer, folder, overwrite_layer)
+###  Usage: ExportShapefileDF(df, layer, folder, overwrite_layer)
 ###  Arguments: df = dataframe with locations
 ###             layer = name of shapefile layer
 ###             folder = location for shapefile files
@@ -2210,10 +2210,10 @@ ExportKMLWindTurbines <- function (df = file.path("C:/Work/R/Data",
 ###  Blake Massey
 ###  2014.05.05
 
-ExportShapefile<-function(df = df, 
-                          layer = "baea", 
-                          folder = "C:/Work/R/Data/Output",
-                          overwrite_layer = FALSE){
+ExportShapefileDF<-function(df = df, 
+                            layer = "baea", 
+                            folder = "C:/Work/R/Data/Output",
+                            overwrite_layer = FALSE){
   suppressPackageStartupMessages(require(rgdal))
   suppressPackageStartupMessages(require(maptools))
   xy<-(cbind(df$long, df$lat))
