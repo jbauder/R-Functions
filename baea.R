@@ -129,6 +129,7 @@ AddNestBehavior <- function(df = df,
 AddNestData <- function(df = df, 
                         nests = "C:/Work/R/Data/BAEA/BAEA_nests.csv") {
   suppressPackageStartupMessages(require(rgdal))
+  suppressPackageStartupMessages(require(plyr))
   df<-df
   nests <- read.csv(nests, header=TRUE, stringsAsFactors=FALSE)
   date_cols<- c("use_start_date", "use_end_date", "clutch_initiation", 
@@ -158,6 +159,7 @@ AddNestData <- function(df = df,
   df <- cbind(df, xy)  # combines lat long with data
   df<-adply(df, 1, transform, dist_nest = as.integer(sqrt(sum((c(long_utm,
     lat_utm) - c(nest_long_utm, nest_lat_utm))^2)))) # Pythagorean theorem  
+  
   return(df)
 }
 
@@ -372,6 +374,106 @@ AddTimeStepProportion <- function(df = df,
   return(df2)
 }
 
+# ConvertNestIdToNum Function --------------------------------------------------
+
+###  Converts alphanumeric "nest_id" column to a numeric "nest_id_num" column 
+###  Usage:  ConvertNestIdToNum(df)
+###  Arguments: df = input dataframe with "nest_id" column  
+###  Returns: A dataframe with a numberic "nest_id_num" column       
+###  Notes: If a "nest_id_num" column doesn't exist, the function automatically 
+###    creates one  
+###  Blake Massey
+###  2014.12.08 
+   
+ConvertNestIdToNum <- function(df){ 
+  suppressPackageStartupMessages(require(stringr))
+  df <- df
+  if(!"nest_id_num" %in% colnames(df)) {
+    df$nest_id_num <- NA
+  }
+  nest_id <- df$nest_id  
+  territory_number <- sapply(strsplit(nest_id, "[A-Z]"), "[", 1)  
+  nest_letter <- str_extract(nest_id, "[A-Z]")
+  nest_number <- sapply(strsplit(nest_id, "[A-Z]"), "[", 2)
+  nest_number[is.na(nest_number)] <- ""
+  letters <- LETTERS[1:26]  # had only gone to "k" in 2012
+  numbers <- formatC(1:26, width = 2, format = "d", flag = "0") 
+  for (i in 1:length(letters)){
+    nest_letter <- gsub(letters[i], numbers[i], nest_letter)
+  }
+  df$nest_id_num <- as.numeric(sprintf("%s%s%s", territory_number, nest_letter,
+    nest_number))
+  return(df)
+}
+
+# ConvertNestNumToId Function --------------------------------------------------
+
+###  Converts a numeric "nest_id_num" column to an alphanumeric "nest_id" column 
+###  Usage:  ConvertNestIdToNum(df)
+###  Arguments: df = input dataframe with "nest_id_num" column  
+###  Returns: A dataframe with a numberic "nest_id" column       
+###  Notes: If a "nest_id" column doesn't exist, the function automatically 
+###    creates one  
+###  Blake Massey
+###  2014.12.08 
+
+ConvertNestNumToId <- function(df){ 
+  df <- df
+  if(!"nest_id" %in% colnames(df)) {
+    df$nest_id <- NA
+  }
+  nest_id_num <- df$nest_id_num
+  letters <- LETTERS[1:26]  # had only gone to "k" in 2012
+  numbers <- formatC(1:26, width = 2, format = "d", flag = "0") 
+  for (i in 1:length(nest_id_num)){
+    if (nchar(nest_id_num[i]) == 3){
+      territory_number<- sprintf("%03d", as.numeric(substr(nest_id_num[i],1,1)))
+      nest_letter <- substr(nest_id_num[i], 2, 3)
+      for (j in 1:length(letters)){
+        nest_letter <- gsub(numbers[j], letters[j], nest_letter)
+      }
+      df$nest_id[i] <- paste(territory_number, nest_letter, sep="") 
+    }
+    if (nchar(nest_id_num[i]) == 4){
+      territory_number<- sprintf("%03d", as.numeric(substr(nest_id_num[i],1,2)))
+      nest_letter <- substr(nest_id_num[i], 3, 4)
+      for (j in 1:length(letters)){
+        nest_letter <- gsub(numbers[j], letters[j], nest_letter)
+      }
+      df$nest_id[i] <- paste(territory_number, nest_letter, sep="") 
+    }
+    if (nchar(nest_id_num[i]) == 5){
+      territory_number <- substr(nest_id_num[i], 1, 3)
+      nest_letter <- substr(nest_id_num[i], 4, 5)
+      for (j in 1:length(letters)){
+        nest_letter <- gsub(numbers[j], letters[j], nest_letter)
+      }
+      df$nest_id[i] <- paste(territory_number, nest_letter, sep="") 
+    }
+    if (nchar(nest_id_num[i]) == 7){
+      territory_number <- substr(nest_id_num[i], 1, 3)
+      nest_letter <- substr(nest_id_num[i], 4, 5)
+      nest_number <- substr(nest_id_num[i], 6, 7)
+      for (j in 1:length(letters)){
+        nest_letter <- gsub(numbers[j], letters[j], nest_letter)
+      }
+      df$nest_id[i] <- paste(territory_number, nest_letter, nest_number, 
+        sep="")
+    }
+    if (nchar(nest_id_num[i]) == 8){
+      territory_number <- substr(nest_id_num[i], 1, 4)
+      nest_letter <- substr(nest_id_num[i], 5, 6)
+      nest_number <- substr(nest_id_num[i], 7, 8)
+      for (j in 1:length(letters)){
+        nest_letter <- gsub(numbers[j], letters[j], nest_letter)
+      }
+      df$nest_id[i] <- paste(territory_number, nest_letter, nest_number, 
+        sep="") 
+    }
+  }
+  return(df)
+}
+
 # CreateColorsByAny Function ----------------------------------------------------
 
 ###  Creates and/or displays dataframe of "by" variable and associated colors 
@@ -421,6 +523,131 @@ CreateColorsByAny <- function (by,
   }
   if (plot == TRUE) PlotColorPie(by_colors)
   if (output == TRUE) return(by_colors)  
+}
+
+# ExportKMLTelemetry Function --------------------------------------------------
+
+###  Create a Google Earth KML file (points and multitrack) from lat/long 
+###    coordinates, defaults are specifically set to my BAEA data
+###  Usage: ExportKMLTelemetry(df, id, datetime, lat, long, speed, alt,alt_mode, 
+###    alt_mode, agl, behavior, point_color, point_metadata, point_pal, 
+###    point_r_pal, point_b_pal, path_color, path_metadata, path_pal 
+###    path_r_pal, path_b_pal, extrude, labelscale, dateformat, 
+###    timeformat, datetimeformat) 
+###  Arguments: df = input dataframe, must have id, lat, long, and datetime 
+###             id = column name of unique identifier, data is split into unique
+###               paths and separate folders based on this parameter
+###             datetime = column name of datetime in POSIXct format or as a 
+###               character in the format (%Y/%m/%d %H:%M)
+###             lat = column name of latitude coordinates (WGS84, dec. degree)
+###             long = column name of longitude coordinates (WGS84, dec. degree)
+###             speed = input dataframe column name for speed. Optional
+###             alt = input dataframe column name for altitude(m). Optional.
+###             alt_mode = based on KML code: "absolute","clampedToGround",
+###               "relativeToGround" (see KML documentation for description).
+###               Default is "clampedToGround".
+###             agl =  input dataframe column name for "altitude above ground 
+###               level", optional
+###             behavior = input dataframe column name for behavior. Optional
+###             point_color = column name that determines the color for each 
+###               point, may be same as 'id' parameter, but may also be sex, 
+###               behavior, season, etc. Default is 'id' parameter
+###             point_metadata = location of metadata .csv file. Metadata file 
+###               must have a column that matches name of 'point_color'
+###               parameter and "icon_color" column with hexadecimal colors.
+###             point_pal = name of color palette funtions (e.g., rainbow, 
+###               heat.colors, terrain.colors, topo.colors, cm.colors
+###               used to create colors. This parameter has priority over the 
+###               other point color palette parameters. Default is NULL.
+###             point_r_pal = Specifc number of 'R_pal' color palette from the 
+###               'PlotKML' Package (e.g., 1 = R_pal[[1]]). This parameter has 
+###               priority over the 'b_pal' parameter for setting the colors. 
+###               Default is NULL.
+###             point_b_pal = color palette name from RColorBrewer package, 
+###               default is "Set1". Automatically adjusts number of colors to 
+###               match the unique number of factors in the 'point_color' 
+###               column of the input dataframe.
+###             extrude = logical, either FALSE (default) for no line, or TRUE 
+###               which extends a line from the point to the ground.
+###             path = logical, to create Track paths. Default is TRUE.
+###             path_color = similar to 'point_color' parameter, but the value
+###               must have the same factor level structure as the id file, 
+###               because each path is constructed for each id factor.
+###               Default will use 'id' parameter.
+###             path_metadata = location of metadata .csv file. Metadata file 
+###               must have a column that matches name of 'path_color'
+###               parameter and an "icon_color" column with hexadecimal colors.
+###             path_pal = name of color palette funtions (e.g., rainbow, 
+###               heat.colors, terrain.colors, topo.colors, cm.colors
+###               used to create colors. This parameter has priority over the 
+###               other point color palette parameters. Default is NULL.
+###             path_r_pal = Specifc number of 'R_pal' color palette from the 
+###               'PlotKML' Package (e.g., 1 = R_pal[[1]]). This parameter has 
+###               priority over the 'b_pal' parameter for setting the colors. 
+###               Default is NULL.
+###             path_b_pal = color palette name from RColorBrewer package, 
+###               default is "Set1". Automatically adjusts number of colors to 
+###               match the unique number of factors in the 'point_color' 
+###               column of the input dataframe.
+###             kml_folder = name for folder in the KML file, default is name of 
+###               'df' parameter
+###             outfile = filepath of output KML file, default is working 
+###               directory and name of 'df' parameter
+###             labelscale = adjusts the size of the Google Earth location 
+###               point labels. Default is 0, which hides the labels. To show 
+###               labels, change to a value between 0.7-1.
+###             dateformat = changes the format of the date in the Google Earth 
+###               location pop-up windows. Default is "%Y/%m/%d".
+###             timeformat = changes the format of the time in the Google Earth  
+###               locations pop-up windows. Default is "%I:%M %p".        
+###             datetimeformat = changes the datetime format for the label of 
+###               highlighted points. Default is "%Y/%m/%d %I:%M %p"
+###  Returns: KML of points and multitracks          
+###  Notes: 
+###  Blake Massey
+###  2014.12.10
+
+ExportKMLTelemetryBAEA <- function (df,
+                                    id = "id",                                  
+                                    datetime = "datetime",
+                                    lat = "lat",
+                                    long = "long", 
+                                    alt = "alt",
+                                    alt_mode = "clampToGround",
+                                    speed = "speed",
+                                    agl = NULL,
+                                    behavior = NULL,
+                                    point_color = "deploy_location",
+                                    point_metadata = file.path("C:/Work/R",
+                                      "Data/BAEA/BAEA_gps_data.csv"),
+                                    point_pal = NULL,
+                                    point_r_pal = NULL,
+                                    point_b_pal = "Set1", 
+                                    extrude = FALSE,
+                                    path = TRUE,
+                                    path_color = NULL,
+                                    path_metadata = NULL,
+                                    path_pal = NULL,
+                                    path_r_pal = NULL,
+                                    path_b_pal = NULL,
+                                    arrow = TRUE,
+                                    icon_by_sex = FALSE,
+                                    labelscale = 0, 
+                                    dateformat = "%Y-%m-%d", 
+                                    timeformat = "%I:%M %p",
+                                    datetimeformat = "%Y-%m-%d %I:%M %p",
+                                    outfile = "BAEA Data.kml",
+                                    kml_folder = "C:/Users/Blake/Desktop") {
+  source('C:/Work/R/Functions/kml.R')
+  ExportKMLTelemetry(df=df, id=id, datetime=datetime, lat=lat, long=long, 
+    alt=alt, alt_mode=alt_mode, speed=speed, agl=agl, behavior=behavior, 
+    point_color=point_color, point_metadata=point_metadata, point_pal=point_pal, 
+    point_r_pal=point_r_pal, point_b_pal=point_b_pal, extrude=extrude, 
+    path=path, path_color=path_color, path_metadata=path_metadata, 
+    path_pal=path_pal, path_r_pal= path_r_pal, path_b_pal=path_b_pal, 
+    arrow=arrow, icon_by_sex=icon_by_sex, labelscale=labelscale, 
+    dateformat=dateformat, timeformat=timeformat, datetimeformat=datetimeformat,
+    outfile=outfile, kml_folder=kml_folder)
 }
 
 # ExtractFlightData Function ---------------------------------------------------

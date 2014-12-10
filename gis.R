@@ -531,6 +531,38 @@ CreateKDERaster <- function(kde_points = kde_points,
   return(kde_raster)
 }
 
+# CreateRasterMCFromPoints Function --------------------------------------------
+
+###  Creates a 'RasterLayer' based on an input dataframe of point locations 
+###  Usage: CreateRasterMCfromPoints(df, field, lat, long, mc)
+###  Arguments: df = input dataframe with columns for lat, long, and data column
+###             field = column name with data for cell values
+###             long = latitude 
+###             lat = longitude 
+###             mc = raster that is used to rasterize() the input data  
+###  Returns: A 'RasterLayer' object with values in all the cells that had 
+###    locations.            
+###  Notes: Input latitude and longitude must match the CRS of 'mc' parameter. 
+###    Returned 'RasterLayer' has same CRS as 'mc' parameter.    
+###  Blake Massey
+###  2014.09.02 
+
+CreateRasterMCFromPoints <- function(df,
+                                     field,
+                                     long, 
+                                     lat, 
+                                     mc = file.path("C:/ArcGIS/Data",
+                                       "BlankRaster/maine_30mc.tif")) { 
+  suppressPackageStartupMessages(require(raster))
+  df <- df
+  xy <- data.frame(x=df[,long], y=df[,lat])  
+  mc_raster <- raster(mc)
+  mc_raster[] <- NA
+  output_raster <- rasterize(xy, mc_raster, field=df[,field], 
+    updateValue='all', fun='last', background = NA)
+  return(output_raster)
+}
+
 # CreateProbIsoplethRaster Function --------------------------------------------
 
 ###  A wrapper function of used to create a RasterLayer of probabilities based 
@@ -2197,35 +2229,45 @@ ExportKMLWindTurbines <- function (df = file.path("C:/Work/R/Data",
   cat("</Document>\n</kml>", file = outfile, append = TRUE)
 }
 
-# ExportShapefileDF Function ###################################################
+# ExportShapefileFromPoints Function ###########################################
 
 ###  Exports shapefile of a dataframe's location data
-###  Usage: ExportShapefileDF(df, layer, folder, overwrite_layer)
+###  Usage: ExportShapefileFromPoints(df, lat, long, name, folder, crs, 
+###    overwrite)
 ###  Arguments: df = dataframe with locations
-###             layer = name of shapefile layer
+###             lat = latitude column name, in same coordinates as 'crs'. 
+###               Default "lat"
+###             long = longitude column name, in same coordinates as 'crs'. 
+###               Default "long"
+###             name = name of shapefile output
 ###             folder = location for shapefile files
-###             overwrite_layer = default FALSE, use with caution 
+###             crs = coordinate reference system, default is 
+###               "+proj=longlat +datum=WGS84"  
+###             overwrite = overwrite outfile, use with caution, default FALSE. 
 ###  Returns: creates shapefile
 ###  Notes: requires "lat" and "long" columns
 ###  Blake Massey
 ###  2014.05.05
 
-ExportShapefileDF<-function(df = df, 
-                            layer = "baea", 
-                            folder = "C:/Work/R/Data/Output",
-                            overwrite_layer = FALSE){
+ExportShapefileFromPoints <- function(df = df, 
+                                      lat = "lat",
+                                      long = "long",
+                                      name = "baea", 
+                                      folder = "C:/Work/R/Data/Output", 
+                                      crs = "+proj=longlat +datum=WGS84",
+                                      overwrite = FALSE){
   suppressPackageStartupMessages(require(rgdal))
   suppressPackageStartupMessages(require(maptools))
-  xy<-(cbind(df$long, df$lat))
+  xy <- (cbind(df[,long], df[,lat]))
   classes <- as.character(sapply(df, class))
   colClasses <- which(classes == "c(\"POSIXct\", \"POSIXt\")")
   df[, colClasses] <- sapply(df[, colClasses], as.character)
   df_sp <- SpatialPointsDataFrame(xy, df, coords.nrs = numeric(0),
-    proj4string = CRS("+proj=longlat +datum=WGS84"), match.ID = TRUE, 
+    proj4string = CRS(crs), match.ID = TRUE, 
     bbox = NULL)  # fails if there are spaces in CRS 
-  writeLines(noquote(paste("Writing: ", folder, "/", layer, ".shp", sep="")))
-  writeOGR(df_sp, folder, layer, driver = "ESRI Shapefile",
-    overwrite_layer = overwrite_layer)
+  writeLines(noquote(paste("Writing: ", folder, "/", name, ".shp", sep="")))
+  writeOGR(df_sp, folder, layer=name, driver = "ESRI Shapefile",
+    overwrite_layer = overwrite)
 }
 
 # ImportLandscapeRasterStack Function ------------------------------------------

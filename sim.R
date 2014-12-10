@@ -27,8 +27,8 @@ CreateSimlist <- function(time_step = "15 min",
   suppressPackageStartupMessages(require(lubridate))
   Make_dates <- function(df=df, 
                          days=days) {
-    x <- df$nest_long  # sets longitude of nest
-    y <- df$nest_lat  # sets latitude of nest
+    long <- df$nest_long  # sets longitude of nest
+    lat <- df$nest_lat  # sets latitude of nest
     day_seq <- seq(from = as.POSIXct(df$clutch_initiation, "%m/%d/%Y", tz =tz),
                 length.out = days, by = "days")  # creates sequence of dates
     nest_age <- seq(1, days, 1)  # day 1 is clutch inititation date

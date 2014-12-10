@@ -165,7 +165,7 @@ CreateColorsByVar <- function (df,
 ###  Returns: KML of points and multitracks          
 ###  Notes: 
 ###  Blake Massey
-###  2014.06.02
+###  2014.12.01
 
 ExportKMLTelemetry <- function (df,
                                 id = "id",                                  
