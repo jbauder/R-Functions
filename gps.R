@@ -1,5 +1,5 @@
 # --- GPS FUNCTIONS ------------------------------------------------------------
-# General functions for GPS telemetry data. Not specific to BAEA data.
+# General functions for GPS telemetry data.
 # ------------------------------------------------------------------------------
 
 # AddFirstLastDistance Function ------------------------------------------------
@@ -63,56 +63,7 @@ AddFirstLastDistance <- function(df = df,
   return(df)
 }
 
-# AddSegmentLengthTime (deprecated) Function -----------------------------------
-
-###  Caculates distances and times between successive points for each individual 
-###  Usage: AddSegmentLengthTime(df, id, datetime, long, lat)
-###  Arguments: df = dataframe
-###             id = "id"
-###             datetime = "datetime" 
-###             long = "long"
-###             lat = "lat"
-###  Returns: dataframe with "seg_length" and "time_diff" columns         
-###  Notes: projects to UTM Zone 19 for Maine (from rgdal Package)
-###  Blake Massey
-###  2014.05.05
-
-AddSegmentLengthTime <- function(df = df, 
-                                 id = "id", 
-                                 datetime = "datetime", 
-                                 long = "long", 
-                                 lat = "lat") {
-  suppressPackageStartupMessages(require(circular))  # not sure this is needed
-  suppressPackageStartupMessages(require(move))  # needed to create 'move' obj
-  if(!("lat_utm" %in% colnames(df))) { 
-    xy <- (cbind(df[ ,long], df[ ,lat]))  # for projection function in next step
-    xy <- project(xy, "+proj=utm +zone=19 ellps=WGS84")  
-    colnames(xy) <- c("long_utm", "lat_utm")
-    xy <- round(xy)  # rounds lat and long to zero decimal places
-    df <- cbind(df, xy)  # combines lat long with originial data  
-  }
-  SegmentLength <- function(df){ #caculates distances between successive points
-    move_object <- move(x = df[ ,"long_utm"], y = df[, "lat_utm"], 
-      time = df[,datetime], proj = CRS("+proj=utm +zone=19 ellps=WGS84"),
-      animal = df[,id], sensor = "GPS") #convert baea to a move object
-    seg_length <- as.integer(c(seglength(move_object), NA))  # NA at end  
-  }
-  SegmentTime <- function(df){  # calculates time between successive points
-    t <- df[ ,datetime]
-    diff <- difftime(head(t, -1), tail(t, -1))
-    time_diff<-as.integer(c(-1*as.numeric(diff, units = "mins"), NA))
-  }
-  sn<-unique(df[,id])
-  for (s in sn){
-    sv = df[,id] %in% s
-    individual <- df[df[ ,id] == s,]
-    df$seg_length[sv] <- SegmentLength(individual)
-    df$time_diff[sv] <- SegmentTime(individual)
-  }     
-  return(df) #returns the dataframe
-}
-
-# AddStepLengthAndAnglesFunction -----------------------------------------------
+# AddStepLengthAndAngles Function -----------------------------------------------
 
 ###  Calculates step length, absolute angle (N=0), and turn angle between 
 ###    successive point locations 
@@ -122,13 +73,11 @@ AddSegmentLengthTime <- function(df = df,
 ###               default is "id" 
 ###             long = longitude, must be in UTM, default is "long_utm"
 ###             lat = latitude, must be in UTM, default is "lat_utm"
-###             radian = logical, whether to return the angles in radian, 
-###               default is FALSE
 ###  Returns: dataframe with "step_length", "abs_angle", and "turn_angle"
 ###    columns         
 ###  Notes: Coordinates must be in identically-scaled units (e.g. UTM meters).  
-###   If data is in lat, long If needed, project coordinates to UTM with 'rgdal' 
-###   package before running this function
+###    If lat and long are in degrees, project coordinates to UTM with 'rgdal' 
+###    package before running this function
 ###  Blake Massey
 ###  2014.11.11
 
@@ -147,21 +96,14 @@ AddStepLengthAndAngles <- function(df,
     step_length <- c(sqrt((xy1$x - xy2$x)^2 + (xy1$y - xy2$y)^2), NA)
     dx <- c(xy1$x - xy2$x, NA)
     dy <- c(xy1$y - xy2$y, NA)
-    abs_angle <- ifelse(step_length < 1e-07, NA, (atan2(dy, dx)/(pi/180)))
-      # if N=0, then in the previous line: atan2(dx,dy)
-    abs_angle <- ifelse(abs_angle < 0, 360 + abs_angle, abs_angle)
+    abs_angle <- ifelse(step_length < 1e-07, NA, (atan2(dy, dx)))
+    abs_angle <- ifelse(abs_angle < 0, (2*pi) + abs_angle, abs_angle)
     turn_angle <- c(abs_angle, 0) - c(0, abs_angle)
-    turn_angle <- ifelse(turn_angle < 0, 360 + turn_angle, turn_angle)
+    turn_angle <- ifelse(turn_angle < 0, (2*pi) + turn_angle, turn_angle)
     turn_angle <- turn_angle[-length(turn_angle)]
     turn_angle[1] <- NA 
-    turn_angle_rad <- turn_angle*(pi/180)
-#    turn_angle_180 <- ifelse(turn_angle>180, 360-turn_angle, turn_angle) 
-#    turn_angle_180_rad <- turn_angle_180*(pi/180)
     out <- cbind.data.frame(dx=dx, dy=dy, step_length=step_length, 
-      abs_angle=abs_angle, turn_angle=turn_angle, 
-      turn_angle_rad=turn_angle_rad) #,
-#      turn_angle_180=turn_angle_180, turn_angle_180_rad=
-#      turn_angle_180_rad)
+      abs_angle=abs_angle, turn_angle=turn_angle) #, 
   }
   uniques <- unique(df[,"by"])
   out <- data.frame()
@@ -198,7 +140,6 @@ AddStepTime<- function(df,
     diff <- difftime(head(t, -1), tail(t, -1))
     step_time <- as.integer(c(-1*as.numeric(diff, units = "mins"), NA))
   }
-  
   uniques <- unique(df[,by])
   out <- data.frame()
   for (j in uniques){
@@ -275,6 +216,66 @@ AddSolarTimes <- function(df = df,
   df2 <- ddply(df, .(by), AddTimes)
   df2$by <- NULL
   return(df2)
+}
+
+# CalculateAngleToPoint Function ---------------------------------------------
+
+###  Calculates absolute angle in radians [0, 2*pi) of origin location to 
+###    target point 
+###  Usage: CalculateAngleToPoint(df, origin_long, origin_lat, target_long, 
+##     target_lat)
+###  Arguments: df = dataframe with origin and target coordinates 
+###             origin_long = column name of origin point longitude
+###             origin_lat = column name of origin point latitude
+###             target_long = column name of target point longitude
+###             target_lat = column name of target point latitude
+###  Returns: vector of angles        
+###  Notes: Coordinates must be in identically-scaled units (e.g. UTM meters).  
+###    If location data is in lat & long, project coordinates to UTM with 
+###    'rgdal' package before running this function.
+###  Blake Massey
+###  2014.12.11
+
+CalculateAngleToPoint <- function(df,
+                                  origin_long, 
+                                  origin_lat, 
+                                  target_long, 
+                                  target_lat){
+  df <- df
+  dx <- c(df[, target_long] - df[, origin_long])
+  dy <- c(df[, target_lat] - df[, origin_lat])
+  abs_angle <- atan2(dy, dx)
+  output <- ifelse(abs_angle < 0, (2*pi) + abs_angle, abs_angle)
+  return(output)
+}
+
+# CalculateAngleToPoint2 Function ----------------------------------------------
+
+###  Calculates absolute angle in radians [0, 2*pi) of origin location to 
+###    target point 
+###  Usage: CalculateAngleToPoint2(origin_long, origin_lat, target_long, 
+##     target_lat)
+###  Arguments: origin_long = column name of origin point longitude
+###             origin_lat = column name of origin point latitude
+###             target_long = column name of target point longitude
+###             target_lat = column name of target point latitude
+###  Returns: vector of angles        
+###  Notes: Coordinates must be in identically-scaled units (e.g. UTM meters).  
+###    If location data is in lat & long, project coordinates to UTM with 
+###    'rgdal' package before running this function. Modified from 
+###    CalculateAngleToPoint() so now the data can come from multiple sources.
+###  Blake Massey
+###  2015.01.02
+
+CalculateAngleToPoint2 <- function(origin_long, 
+                                   origin_lat, 
+                                   target_long, 
+                                   target_lat){
+  dx <- c(target_long - origin_long)
+  dy <- c(target_lat - origin_lat)
+  abs_angle <- atan2(dy, dx)
+  output <- ifelse(abs_angle < 0, (2*pi) + abs_angle, abs_angle)
+  return(output)
 }
 
 # CompileDownloads Function ----------------------------------------------------
@@ -712,7 +713,7 @@ PlotLocationSunriseSunset <- function(df = df,
     geom_line(aes(datetime, sunset), colour = "orange" , size = 2) +
     geom_line(aes(datetime, sunrise), colour = "orange", size = 2) +
     labs(title = "Locations in Relation to Sunrise and Sunset", 
-    x="Date", y="Time") +
+      x="Date", y="Time") +
     scale_y_datetime(breaks=date_breaks("1 hour"), labels=date_format("%H")) +
     scale_x_datetime(breaks=date_breaks(breaks), labels=date_format("%m/%d"),
     limits=limits_x) 

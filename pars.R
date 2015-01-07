@@ -420,7 +420,7 @@ FitGenVonMisesDensityToArray <- function(var,
                                            pars) {
   suppressPackageStartupMessages(require(stats))
   suppressPackageStartupMessages(require(circular))
-  x <- seq((2*pi/360), 2*pi, by=(2*pi/360))
+  x <- seq(0, 2*pi, by=((2*pi)/720))
   dens <- data.frame(by=rep(pars[,1], each=length(x)),
                    x=rep(x, time=length(pars[,1])),
                    y=NA, stringsAsFactors=FALSE)
@@ -468,10 +468,6 @@ FitGenVonMisesParsToData <- function(df,
     data  <- subset(df, by == i, select = var, rm.na=TRUE)
     data <- data[!is.na(data)]
     if (length(data) >  1000) data <- sample(data, 800)
-#     if (is.null(mu1)) {
-#       mu1 <- mean.circular(data)
-#       ifelse(mu1 < pi, mu1 <- mu1+pi, mu2 <- mu1-pi)
-#     }
     suppressWarnings(pars_i <- mle2(NLLGenVonMises, start=list(mu1=mu1, 
       mu2=mu2, kappa1=kappa1, kappa2=kappa2), data=list(data=data)))
     pars[which(pars$by==i), "mu1"] = coef(pars_i)[1]
@@ -656,7 +652,7 @@ FitWrappedCauchyDensityToArray <- function(var,
                                            pars) {
   suppressPackageStartupMessages(require(stats))
   suppressPackageStartupMessages(require(CircStats))
-  x <- seq((2*pi/360), 2*pi, by=(2*pi/360))
+  x <- seq(0, 2*pi, by=(2*pi/720))
   dens <- data.frame(by=rep(pars[,1], each=length(x)),
                    x=rep(x, time=length(pars[,1])),
                    y=NA, stringsAsFactors=FALSE)
@@ -721,7 +717,7 @@ FitWrappedNormalDensityToArray <- function(var,
                                            pars) {
   suppressPackageStartupMessages(require(stats))
   suppressPackageStartupMessages(require(circular))
-  x <- seq((2*pi/360), 2*pi, by=(2*pi/360))
+  x <- seq(0, 2*pi, by=(2*pi/720))
   dens <- data.frame(by=rep(pars[,1], each=length(x)),
                    x=rep(x, time=length(pars[,1])),
                    y=NA, stringsAsFactors=FALSE)
@@ -1028,7 +1024,7 @@ PlotCauchyPDF <- function(location = 5,
 ###  Plots a histogram of the data with an option to fit a generalized von Mises 
 ###    distribution
 ###  Usage: PlotHistAndGenVonMises (df, var, by, pars, bin_width, 
-###    fit_wrap_cauchy, fit_color)
+###    fit_wrap_cauchy, fit_color, x_lab, title)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit von Mises distribution
 ###             by = optional, column name used to subset data, default = NULL 
@@ -1040,6 +1036,7 @@ PlotCauchyPDF <- function(location = 5,
 ###             fit_color = color used for von Mises fit line, quantiles, and 
 ###               parameter value text. Default is "black"
 ###             x_lab = name for x-axis, default is 'var'
+###             title = title of plot, default is NULL
 ###  Returns: a plot of the data with a fitted von Mises distribution            
 ###  Notes: Automatically adjusts plot for degrees or radians input, but all 
 ###    parameter estimates are based on radians 
@@ -1053,7 +1050,8 @@ PlotHistAndGenVonMises <- function(df,
                                    bin_width = NULL,             
                                    fit_gen_von_mises = TRUE, 
                                    fit_color = "black",
-                                   x_lab = NULL) {  
+                                   x_lab = NULL, 
+                                   title = NULL) {  
   suppressPackageStartupMessages(require(ggplot2))
   suppressPackageStartupMessages(require(grid))
   source('C:/Work/R/Functions/baea.R')
@@ -1093,9 +1091,10 @@ PlotHistAndGenVonMises <- function(df,
     theme(axis.text=element_text(colour="black")) + 
     theme(axis.text.x = element_text(colour="grey20",size=12))+
     theme(axis.ticks = element_blank()) +
-    xlab(x_lab) + ylab("Density") 
+    theme(plot.title = element_text(vjust=3)) +
+    xlab(x_lab) + ylab("Density") + labs(title = title)
   g <- g + geom_bar(aes(y = ..density.., fill=by), color="black", 
-    binwidth=bin_width) + coord_polar(start=(.5*pi)) +
+    binwidth=bin_width) + coord_polar(start=(1.5*pi), direction = -1) +
     scale_x_continuous(limits=limits, breaks=breaks, minor_breaks=minor_breaks, 
       labels = labels) + scale_y_continuous(labels = NULL)
   if (!is.null(by)) g <- g + facet_wrap( ~ by)
@@ -1120,10 +1119,10 @@ PlotHistAndGenVonMises <- function(df,
     build <- ggplot_build(g)    
     pars$xmax <- max(build$panel$ranges[[1]]$theta.range)  # for geom_text 
     pars$ymax <- max(build$panel$ranges[[1]]$r.range)  # for geom_text 
-    g <- g + geom_text(data = pars, aes(y = ymax*1, x = xmax*.635,
+    g <- g + geom_text(data = pars, aes(y = ymax*1, x = xmax*.365,
       label = paste0("mu1: ", signif(mu1, 3), "\n", "mu2: ", signif(mu2, 3))), 
       size=4.5, color = fit_color, hjust=1, vjust=-1.3)
-    g <- g + geom_text(data = pars, aes(y = ymax*1, x = xmax*.865,
+    g <- g + geom_text(data = pars, aes(y = ymax*1, x = xmax*.135,
       label = paste0("kappa1: ", signif(kappa1, 2), "\n", "kappa2: ", 
       signif(kappa2, 2))), size=4.5, color = fit_color, hjust=0, vjust=-1.3)
   }
@@ -1398,7 +1397,7 @@ PlotHistAndPareto <- function(df,
 ###  Plots a histogram of the data with an option to fit a wrapped Cauchy 
 ###    distribution  
 ###  Usage: PlotHistAndWrappedCauchy (df, var, by, pars, bin_width, 
-###    fit_wrap_cauchy, fit_color)
+###    fit_wrap_cauchy, fit_color, x_lab, title)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit wrapped Cauchy distribution
 ###             by = optional, column name used to subset data, default = NULL 
@@ -1410,6 +1409,7 @@ PlotHistAndPareto <- function(df,
 ###             fit_color = color used for Pareto fit line, quantiles, and 
 ###               parameter value text. Default is "black"
 ###             x_lab = name for x-axis, default is 'var'
+###             title = title of plot, default is NULL
 ###  Returns: a plot of the data with a fitted wrapped Cauchy distribution            
 ###  Notes: Automatically adjusts plot for degrees or radians input, but all 
 ###    parameter estimates are based on radians 
@@ -1423,7 +1423,8 @@ PlotHistAndWrappedCauchy<- function(df,
                                     bin_width = NULL,             
                                     fit_wrapped_cauchy = TRUE, 
                                     fit_color = "black",
-                                    x_lab = NULL) {  
+                                    x_lab = NULL,
+                                    title = NULL) {  
   suppressPackageStartupMessages(require(ggplot2))
   suppressPackageStartupMessages(require(grid))
   source('C:/Work/R/Functions/baea.R')
@@ -1458,9 +1459,10 @@ PlotHistAndWrappedCauchy<- function(df,
     theme(axis.text=element_text(colour="black")) + 
     theme(axis.text.x = element_text(colour="grey20",size=12))+
     theme(axis.ticks = element_blank()) +
-    xlab(x_lab) + ylab("Density") 
+    theme(plot.title = element_text(vjust=3)) +
+    xlab(x_lab) + ylab("Density") + labs(title = title)
   g <- g + geom_bar(aes(y = ..density.., fill=by), color="black", 
-    binwidth=bin_width) + coord_polar(start=(.5*pi)) +
+    binwidth=bin_width) + coord_polar(start=(1.5*pi), direction = -1) +
     scale_x_continuous(limits=limits, breaks=breaks, minor_breaks=minor_breaks, 
       labels = labels) + scale_y_continuous(labels = NULL)
   if (!is.null(by)) g <- g + facet_wrap( ~ by)
@@ -1486,7 +1488,7 @@ PlotHistAndWrappedCauchy<- function(df,
     build <- ggplot_build(g)    
     pars$xmax <- max(build$panel$ranges[[1]]$theta.range)  # for geom_text 
     pars$ymax <- max(build$panel$ranges[[1]]$r.range)  # for geom_text 
-    g <- g + geom_text(data = pars, aes(y = ymax, x = xmax*.875,
+    g <- g + geom_text(data = pars, aes(y = ymax, x = xmax*.125,
       label = paste("mu:", signif(mu,3),"\n","rho:", signif(rho,3)), sep=""), 
       size=4.5, color = fit_color, hjust=0, vjust=-1.5) 
   }
@@ -1498,7 +1500,7 @@ PlotHistAndWrappedCauchy<- function(df,
 ###  Plots a histogram of the data with an option to fit a wrapped normal 
 ###    distribution  
 ###  Usage: PlotHistAndWrappedNormal (df, var, by, pars, bin_width, 
-###    fit_wrap_cauchy, fit_color)
+###    fit_wrap_cauchy, fit_color, x_lab, title)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit wrapped Cauchy distribution
 ###             by = optional, column name used to subset data, default = NULL 
@@ -1510,6 +1512,7 @@ PlotHistAndWrappedCauchy<- function(df,
 ###             fit_color = color used for Pareto fit line, quantiles, and 
 ###               parameter value text. Default is "black"
 ###             x_lab = name for x-axis, default is 'var'
+###             title = title of plot, default is NULL
 ###  Returns: a plot of the data with a fitted wrapped normal distribution            
 ###  Notes: Automatically adjusts plot for degrees or radians input, but all 
 ###    parameter estimates are based on radians 
@@ -1523,7 +1526,8 @@ PlotHistAndWrappedNormal <- function(df,
                                      bin_width = NULL,             
                                      fit_wrapped_normal = TRUE, 
                                      fit_color = "black",
-                                     x_lab = NULL) {  
+                                     x_lab = NULL,
+                                     title = NULL) {  
   suppressPackageStartupMessages(require(ggplot2))
   suppressPackageStartupMessages(require(grid))
   source('C:/Work/R/Functions/baea.R')
@@ -1557,9 +1561,10 @@ PlotHistAndWrappedNormal <- function(df,
     theme(axis.text=element_text(colour="black")) + 
     theme(axis.text.x = element_text(colour="grey20",size=12))+
     theme(axis.ticks = element_blank()) +
-    xlab(x_lab) + ylab("Density") 
+    theme(plot.title = element_text(vjust=3)) +
+    xlab(x_lab) + ylab("Density") + labs(title = title, hjust=1)
   g <- g + geom_bar(aes(y = ..density.., fill=by), color="black", 
-    binwidth=bin_width) + coord_polar(start=(.5*pi)) +
+    binwidth=bin_width) + coord_polar(start=(1.5*pi), direction = -1) +
     scale_x_continuous(limits=limits, breaks=breaks, minor_breaks=minor_breaks, 
       labels = labels) + scale_y_continuous(labels = NULL)
   if (!is.null(by)) g <- g + facet_wrap( ~ by)
@@ -1584,10 +1589,40 @@ PlotHistAndWrappedNormal <- function(df,
     build <- ggplot_build(g)    
     pars$xmax <- max(build$panel$ranges[[1]]$theta.range)  # for geom_text 
     pars$ymax <- max(build$panel$ranges[[1]]$r.range)  # for geom_text 
-    g <- g + geom_text(data = pars, aes(y = ymax, x = xmax*.875,
+    g <- g + geom_text(data = pars, aes(y = ymax, x = xmax*.125,
       label = paste("mu:", signif(mu,3),"\n","rho:", signif(rho,3)), sep=""), 
       size=4.5, color = fit_color, hjust=0, vjust=-1.5) 
   }
+  g
+}
+
+# PlotLogisticCDF Function -----------------------------------------------------
+
+###  Plot Logistic Cumulative Probability Distribution Function
+###  Usage: PlotLogisticCDF(location, scale, max_x)
+###  Arguments: location = location parameter
+###             scale = scale parameter
+###             max_x = maximum value on x scale, default is 250
+###  Returns: plot of probability distribution
+###  Notes:
+###  Blake Massey
+###  2014.12.16
+
+PlotLogisticCDF <- function(location, 
+                            scale, 
+                            max_x){
+  suppressPackageStartupMessages(require(ggplot2))
+  x <- seq(0, max_x, length=max_x)
+  y <- exp(location + scale*x)/(1 + exp(location + scale*x))
+  df <- as.data.frame(cbind(x, y))
+  main <- paste0("Logistic (location = ", location, ", scale = ", scale, ")")
+  g <- ggplot(df, aes(x, y)) +
+    geom_line(colour="dark green", size=1.5) + 
+    theme(legend.position="none") +
+    theme(plot.title=element_text(size=22)) +
+    theme(text=element_text(size=20, colour="black")) +
+    theme(axis.text=element_text(colour="black")) +
+    labs(x='Value', y='Probability Density', title=main)
   g
 }
 
@@ -1615,12 +1650,12 @@ PlotParetoPDF <- function(location = 1,
   suppressPackageStartupMessages(require(stats))
   suppressPackageStartupMessages(require(VGAM))
   if (is.null(xlim)){
-    x <- seq(location, qgpd(.99, location, scale, shape), length=501)
+    x <- seq(location, VGAM::qgpd(.99, location, scale, shape), length=501)
   } else {
     x <- seq(location, xlim, length=501)
   }
   x <- x[2:501]
-  y <- dgpd(x, location=location, scale=scale, shape=shape)
+  y <- VGAM::dgpd(x, location=location, scale=scale, shape=shape)
   df <- as.data.frame(cbind(x, y))
   main <- paste("Pareto Distribution", "\n", "(location = ", signif(location,3), 
     ", scale = ", signif(scale,3),
@@ -1633,10 +1668,10 @@ PlotParetoPDF <- function(location = 1,
     theme(axis.text=element_text(colour="black")) +
     scale_x_continuous (limits= c(0, max(x)))
   g + labs(x = 'Value', y= 'Probability Density', title=main) +
-  geom_vline(xintercept = qgpd(.75, location=location, scale=scale, shape=shape), 
-    size=1, colour="grey20", linetype = "longdash") +
-  geom_vline(xintercept = qgpd(.95, location=location, scale=scale, shape=shape), 
-    size=1, colour="grey30", linetype = "longdash")
+  geom_vline(xintercept = VGAM::qgpd(.75, location=location, scale=scale,
+    shape=shape), size=1, colour="grey20", linetype = "longdash") +
+  geom_vline(xintercept = VGAM::qgpd(.95, location=location, scale=scale, 
+    shape=shape), size=1, colour="grey30", linetype = "longdash")
 }
 
 # PlotParsBeta Function --------------------------------------------------------
@@ -1721,11 +1756,11 @@ PlotWeibullCDF <- function(shape = 1,
                            max_x = 250){
   suppressPackageStartupMessages(require(ggplot2))
   x <- seq(0, max_x, length=250)
-  hx <- pweibull(x, shape=shape, scale=scale)
-  df <- as.data.frame(cbind(x, hx))
+  y <- pweibull(x, shape=shape, scale=scale)
+  df <- as.data.frame(cbind(x, y))
   main <- paste("Weibull Distribution (shape = ", shape, ", scale = ", 
     scale, ")",  sep="")
-  g <- ggplot(df, aes(x, hx)) +
+  g <- ggplot(df, aes(x, y)) +
     geom_line(colour="dark green", size=1.5) + 
     theme(legend.position="none") +
     theme(plot.title=element_text(size=22)) +
@@ -1751,11 +1786,11 @@ PlotWeibullPDF <- function(shape = 1,
                            max_x = 250){
   suppressPackageStartupMessages(require(ggplot2))
   x <- seq(0, max_X, length=250)
-  hx <- dweibull(x, shape=shape, scale=scale)
-  df <- as.data.frame(cbind(x, hx))
+  y <- dweibull(x, shape=shape, scale=scale)
+  df <- as.data.frame(cbind(x, y))
   main <- paste("Weibull Distribution (shape = ", shape, ", scale = ",
     scale, ")", sep="")
-  g <- ggplot(df, aes(x, hx)) +
+  g <- ggplot(df, aes(x, y)) +
     geom_line(colour="dark green", size=1.5) + 
     theme(legend.position="none") +
     theme(plot.title=element_text(size=22)) +

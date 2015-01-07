@@ -13,4 +13,5 @@ filenames <- c('C:/Work/R/Functions/baea.R',
 sapply(filenames, source)
 
 ### Function to replace text string in multiple functions
-#ReplaceFilesText(filenames, "multiTrack", "Track")
+source('C:/Work/R/Functions/gen.R')
+ReplaceFilesText(filenames, "CalculateBearingToPoint", "CalculateAngleToPoint")

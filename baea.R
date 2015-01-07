@@ -1,4 +1,3 @@
-# --- BAEA FUNCTIONS -----------------------------------------------------------
 # Functions more specific to Bald Eagle behavior and data analysis 
 # ------------------------------------------------------------------------------
 
@@ -16,7 +15,7 @@
 ###  2014.09.30
 
 AddCruiseBehavior <- function(df = df, 
-                              min_agl = 25,
+                              min_agl = 200,
                               min_speed = 5) {
   df <- df
   df$behavior <- ifelse(df$agl >= min_agl & df$speed >= min_speed & 
@@ -24,7 +23,7 @@ AddCruiseBehavior <- function(df = df,
   return(df)
 }
 
-# AddFlightData Function ---------------------------------------------------
+# AddFlightData Function -------------------------------------------------------
 
 ###  Finds location data that meet given threshold parameters for flights, which
 ###    include the start point, mid-flight, and final location of a flight
@@ -74,27 +73,6 @@ AddFlightData <- function(df,
   return(df2)
 }
 
-# AddForageBehavior (deprectated) Function -------------------------------------
-
-###  Finds forage behavior that meet given threshold parameters
-###  Usage: AddForageBehavior(df, dist_to_hydro)
-###  Arguments: df = dataframe 
-###             dist_to_hydro = distance (in meters) from location to water
-###               to assign "forage" behavior
-###  Returns: dataframe with behavior column that has "forage"   
-###  Notes: should run AddNestBehavior and AddRoostBehavior prior to this 
-###    function
-###  Blake Massey
-###  2014.09.30
-
-# AddForageBehavior <- function(df = df, 
-#                               dist_to_hydro = 75) {
-#   df<-df
-#   df$behavior <- ifelse(df$hydro_dist <= dist_to_hydro & is.na(df$behavior), 
-#                         "forage", df$behavior)
-#   return(df)
-# }
-
 # AddNestBehavior Function -----------------------------------------------------
 
 ###  Finds nest attendance behavior that meet given threshold parameters
@@ -111,8 +89,43 @@ AddNestBehavior <- function(df = df,
                             distance_to_nest = 50) {
   df<-df
   df$behavior <- NA
-  df$behavior <- ifelse(df$dist_nest <= distance_to_nest, "nest", df$behavior)
+  df$behavior <- ifelse(df$nest_dist <= distance_to_nest, "nest", df$behavior)
   return(df)
+}
+
+# AddNestConDist Function ------------------------------------------------------
+
+###  Adds nest and conspecific distances to dataframe
+###  Usage: AddNestConDist(df, nests_con_dist)
+###  Arguments: df = dataframe of locations, must have coordinate columns
+###             nest_con_dist = list of nest and conspecific distance rasters
+###  Returns: dataframe with "nest_dist" and "con_dist" columns
+###  Notes: The nest_con_dist has to have structure of list[[year]][[nest_id]]
+###  Blake Massey
+###  2014.12.11
+
+AddNestConDist<- function(df, 
+                          nest_con_dist = nest_con_dist) {
+  df <- df
+  nest_con_dist <- nest_con_dist
+  AddDistances <- function(df){
+    df <- df
+    coordinates(df) <- cbind(df$long_utm, df$lat_utm)
+    proj4string(df) <- CRS("+proj=utm +zone=19 +datum=NAD83")
+    nest_id <- unique(df$nest_id)
+    year <- unique(df$year)
+    dists <- nest_con_dist[[as.character(year)]][[nest_id]]
+    df$nest_dist <- round(as.vector(unlist(extract(dists, df, layer=1, 
+      nl=1))))
+    df$con_dist <-round(as.vector(unlist(extract(dists, df, layer=2, 
+      nl=1))))
+    output <- as.data.frame(df)
+    return(output)
+  }
+  output <- ddply(df, .(year, id), AddDistances)
+  output$x <- NULL
+  output$y <- NULL
+  return(output)
 }
 
 # AddNestData Function ---------------------------------------------------------
@@ -124,13 +137,14 @@ AddNestBehavior <- function(df = df,
 ###  Returns: dataframe with merged nest data from "nests" file   
 ###  Notes: 
 ###  Blake Massey
-###  2014.06.11
+###  2014.12.10
 
 AddNestData <- function(df = df, 
                         nests = "C:/Work/R/Data/BAEA/BAEA_nests.csv") {
+  source('C:/Work/R/Functions/baea.R')
   suppressPackageStartupMessages(require(rgdal))
   suppressPackageStartupMessages(require(plyr))
-  df<-df
+  df <- df
   nests <- read.csv(nests, header=TRUE, stringsAsFactors=FALSE)
   date_cols<- c("use_start_date", "use_end_date", "clutch_initiation", 
     "breeding_end_date")
@@ -152,18 +166,43 @@ AddNestData <- function(df = df,
     df$date <= use_end_date
   df[sv, (ncol(df)-length(nest)+1):ncol(df)] <- nest[1,]
   }
-  xy <- cbind(df$nest_long,df$nest_lat) # 2 col for next step
-  xy <- project(xy, "+proj=utm +zone=19 ellps=WGS84")  # projects to UTM Zone 19
-  colnames(xy) <- c("nest_long_utm", "nest_lat_utm")  # name columns
-  xy <- round(xy)  # rounds lat and long to zero decimal places
-  df <- cbind(df, xy)  # combines lat long with data
-  df<-adply(df, 1, transform, dist_nest = as.integer(sqrt(sum((c(long_utm,
-    lat_utm) - c(nest_long_utm, nest_lat_utm))^2)))) # Pythagorean theorem  
-  
+  drops <- c("eagle_id", "nest_long", "nest_lat", "active_2013", "active_2014", 
+    "active_2015", "active_2016", "active_2017", "use_start_date", 
+    "use_end_date", "clutch_initiation", "breeding_end_date", "clutch_size",
+    "num_fledge", "nest_notes")  # vector of columns to drop
+  df <- df[ ,!(names(df) %in% drops)]
+  df$nest_angle <- CalculateAngleToPoint(df, "long_utm", "lat_utm", 
+    "nest_long_utm", "nest_lat_utm")
+#   xy <- cbind(df$nest_long,df$nest_lat) # 2 col for next step
+#   xy <- project(xy, "+proj=utm +zone=19 ellps=WGS84")  # projects to UTM N19
+#   colnames(xy) <- c("nest_long_utm", "nest_lat_utm")  # name columns
+#   xy <- round(xy)  # rounds lat and long to zero decimal places
+#   df <- cbind(df, xy)  # combines lat long with data
+#   df<-adply(df, 1, transform, dist_nest = as.integer(sqrt(sum((c(long_utm,
+#     lat_utm) - c(nest_long_utm, nest_lat_utm))^2)))) # Pythagorean theorem  
   return(df)
 }
 
-# AddRoostBehavior Function -----------------------------------------------
+# AddPerchBehavior Function ----------------------------------------------------
+
+###  Finds perch behavior that meet given threshold parameters
+###  Usage: AddPerchBehavior(df, max_speed)
+###  Arguments: df = dataframe
+###             max_speed = max_speed to assign 
+###  Returns: dataframe with behavior column that has "perch"   
+###  Notes:
+###  Blake Massey
+###  2014.12.17
+
+AddPerchBehavior <- function(df = df, 
+                             max_speed = 5) {
+  df<-df
+  df$behavior <- NA
+  df$behavior <- ifelse(df$speed < max_speed, "perch", df$behavior)
+  return(df)
+}
+
+# AddRoostBehavior Function ----------------------------------------------------
 
 ###  Finds roost arrivals and departures that meet given threshold parameters
 ###  Usage: AddRoostBehavior(df, overnight_distance_threshold, 
@@ -330,7 +369,7 @@ AddRoostBehavior <- function(df = baea,
   return(df)
 }
 
-# AddTimeStepProportion Function -------------------------------------------
+# AddTimeStepProportion Function -----------------------------------------------
 
 ###  Adds time_steps, day_min, time_after_start, and time_proportion data
 ###  Usage: AddTimeStepProportion(df, time_step="15 min", tz = "Etc/GMT+5")
@@ -359,9 +398,9 @@ AddTimeStepProportion <- function(df = df,
     for (i in 1:nrow(days)) {
       day <- days[i,]
       days[i,"time_steps"] <- length(seq(day[,"hr_before_sunrise"], 
-      day[,"hr_after_sunset"], time_step))
+        day[,"hr_after_sunset"], time_step))
       days[i,"day_min"] <- as.integer(difftime(day[,"hr_after_sunset"], 
-      day[,"hr_before_sunrise"],tz=tz, units = ("mins")))
+        day[,"hr_before_sunrise"],tz=tz, units = ("mins")))
     }
   return(days)
   }
@@ -474,7 +513,7 @@ ConvertNestNumToId <- function(df){
   return(df)
 }
 
-# CreateColorsByAny Function ----------------------------------------------------
+# CreateColorsByAny Function ---------------------------------------------------
 
 ###  Creates and/or displays dataframe of "by" variable and associated colors 
 ###  Usage: CreateColorsByAny(by, df, pal, output, plot, ...)
@@ -525,11 +564,11 @@ CreateColorsByAny <- function (by,
   if (output == TRUE) return(by_colors)  
 }
 
-# ExportKMLTelemetry Function --------------------------------------------------
+# ExportKMLTelemetryBAEA Function ----------------------------------------------
 
 ###  Create a Google Earth KML file (points and multitrack) from lat/long 
 ###    coordinates, defaults are specifically set to my BAEA data
-###  Usage: ExportKMLTelemetry(df, id, datetime, lat, long, speed, alt,alt_mode, 
+###  Usage: ExportKMLTelemetryBAEA(df, id, datetime, lat, long, speed, alt,
 ###    alt_mode, agl, behavior, point_color, point_metadata, point_pal, 
 ###    point_r_pal, point_b_pal, path_color, path_metadata, path_pal 
 ###    path_r_pal, path_b_pal, extrude, labelscale, dateformat, 
@@ -636,9 +675,15 @@ ExportKMLTelemetryBAEA <- function (df,
                                     dateformat = "%Y-%m-%d", 
                                     timeformat = "%I:%M %p",
                                     datetimeformat = "%Y-%m-%d %I:%M %p",
-                                    outfile = "BAEA Data.kml",
+                                    file = "BAEA Data.kml",
                                     kml_folder = "C:/Users/Blake/Desktop") {
   source('C:/Work/R/Functions/kml.R')
+  if (point_color == "behavior" || point_color == "sex") {
+      point_metadata = file.path("C:/Work/R/Data/BAEA/BAEA_metadata.csv")
+  }
+  if (!is.null(path_color) &&  path_color == "sex") {
+      path_metadata = file.path("C:/Work/R/Data/BAEA/BAEA_metadata.csv")
+  }
   ExportKMLTelemetry(df=df, id=id, datetime=datetime, lat=lat, long=long, 
     alt=alt, alt_mode=alt_mode, speed=speed, agl=agl, behavior=behavior, 
     point_color=point_color, point_metadata=point_metadata, point_pal=point_pal, 
@@ -647,7 +692,7 @@ ExportKMLTelemetryBAEA <- function (df,
     path_pal=path_pal, path_r_pal= path_r_pal, path_b_pal=path_b_pal, 
     arrow=arrow, icon_by_sex=icon_by_sex, labelscale=labelscale, 
     dateformat=dateformat, timeformat=timeformat, datetimeformat=datetimeformat,
-    outfile=outfile, kml_folder=kml_folder)
+    file=file, kml_folder=kml_folder)
 }
 
 # ExtractFlightData Function ---------------------------------------------------
@@ -700,7 +745,7 @@ ExtractMovements <- function(df,
   return(movements)
 }
 
-# ExtractRoostData Function -----------------------------------------------------------
+# ExtractRoostData Function ----------------------------------------------------
 
 ###  Returns a dataframe of sex, arr_diff_min, and dep_diff_min
 ###  Usage: ExtractRoostData(df)
@@ -963,9 +1008,8 @@ PlotBehaviorProportionBar<-function(df = df,
   suppressPackageStartupMessages(require(scales))
   suppressPackageStartupMessages(require(reshape))
   source('C:/Work/R/Functions/gps.R')
-  behavior_colors <- CreateColorsByBehavior(output=TRUE)
-  df$sex <- gsub("m", "male", df$sex)
-  df$sex <- gsub("f", "female", df$sex)
+  behavior_colors <- CreateColorsByMetadata(file=
+      "C:/Work/R/Data/BAEA/BAEA_metadata.csv", metadata_id="behavior")
   df$behavior <- factor(df$behavior)
   CutProportion <- function(data,breaks=breaks) {  
     b <- seq(0, 1, length=2*breaks+1)
@@ -1015,11 +1059,10 @@ PlotBehaviorProportionLine<-function(df = df,
   suppressPackageStartupMessages(require(grid))
   suppressPackageStartupMessages(require(scales))
   suppressPackageStartupMessages(require(reshape))
-  df$sex<-gsub("m", "male", df$sex)
-  df$sex<-gsub("f", "female", df$sex)
   df$behavior<-factor(df$behavior)
   source('C:/Work/R/Functions/gps.R')
-  behavior_colors <- CreateColorsByBehavior(output=TRUE)
+  behavior_colors <- CreateColorsByMetadata(file=
+      "C:/Work/R/Data/BAEA/BAEA_metadata.csv", metadata_id="behavior")
   CutProportion <- function(data,breaks=breaks) {  
     b <- seq(0, 1, length=2*breaks+1)
     brk <- b[0:breaks*2+1]
@@ -1048,41 +1091,6 @@ PlotBehaviorProportionLine<-function(df = df,
     theme(axis.text=element_text(colour="black")) + labs(x="Daily Period", 
     y="Behavior Proportion", title="Daily Behavior Distributions") 
 }
-
-# PlotFlightSpeed Function (deprecated) ----------------------------------------
-
-# ###  Plots a histogram of the speed of flights for each bird  
-# ###  Usage: PlotFlightSpeed(df)
-# ###  Arguments: df = dataframe with flights
-# ###             id = column name of unique identifier, default = "id"
-# ###  Returns: a plot with a normal distribution fitted for each id          
-# ###  Notes: 
-# ###  Blake Massey
-# ###  2014.10.20  
-#   
-# PlotFlightSpeed <- function(df,
-#                             id = "id") {
-#   source('C:/Work/R/Functions/gen.R')
-#   source('C:/Work/R/Functions/baea.R')
-#   df <- df
-#   sum_flight <- SummarizeSE(df, "speed", "id")
-#   id_colors <- CreateColorsByID(output=TRUE)  
-#   grid <- with(df, seq(min(speed), max(speed), length = 100))
-#   normaldens <- ddply(df, id, function(df) {
-#     data.frame(speed = grid, density=dnorm(grid, mean(df$speed),sd(df$speed)))
-#     })  
-#   g <- ggplot(df, aes(x = speed, fill=id)) + facet_wrap( ~ id)  +
-#     scale_fill_manual(values=id_colors) +
-#     theme(legend.position="none") +
-#     theme(plot.title=element_text(size=22)) +
-#     theme(text=element_text(size=20, colour="black")) +
-#     theme(axis.text=element_text(colour="black")) + 
-#     xlab("Speed") + ylab("Density") 
-#   g + geom_bar(aes(y = ..density.., fill=id), colour="black", binwidth = 2) +
-#     geom_text(aes(x=speed+20, y=0.05, label=paste("mean: ", signif(speed,3),
-#       "\n","sd: ",signif(sd,3), sep="")), data=sum_flight) +
-#     geom_line(aes(y = density), colour="black", size=1, data = normaldens)
-# }
 
 # PlotStepLengths Function -----------------------------------------------------
 

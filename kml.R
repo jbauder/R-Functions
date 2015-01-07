@@ -1,3 +1,7 @@
+# --- KML FUNCTIONS ------------------------------------------------------------
+# General functions for the creation of KML files
+# ------------------------------------------------------------------------------
+
 # CreateColorsByMetadata Function ----------------------------------------------
 
 ###  Creates and/or displays dataframe of IDs and their associated colors 
@@ -149,10 +153,6 @@ CreateColorsByVar <- function (df,
 ###               default is "Set1". Automatically adjusts number of colors to 
 ###               match the unique number of factors in the 'point_color' 
 ###               column of the input dataframe.
-###             kml_folder = name for folder in the KML file, default is name of 
-###               'df' parameter
-###             outfile = filepath of output KML file, default is working 
-###               directory and name of 'df' parameter
 ###             labelscale = adjusts the size of the Google Earth location 
 ###               point labels. Default is 0, which hides the labels. To show 
 ###               labels, change to a value between 0.7-1.
@@ -162,10 +162,14 @@ CreateColorsByVar <- function (df,
 ###               locations pop-up windows. Default is "%I:%M %p".        
 ###             datetimeformat = changes the datetime format for the label of 
 ###               highlighted points. Default is "%Y/%m/%d %I:%M %p"
+###             file = filename of output KML file, default is name of input 
+###               dataframe
+###             kml_folder = name for folder in the KML file, default is working
+###               directory
 ###  Returns: KML of points and multitracks          
 ###  Notes: 
 ###  Blake Massey
-###  2014.12.01
+###  2014.12.10
 
 ExportKMLTelemetry <- function (df,
                                 id = "id",                                  
@@ -195,32 +199,25 @@ ExportKMLTelemetry <- function (df,
                                 dateformat = "%Y-%m-%d", 
                                 timeformat = "%I:%M %p",
                                 datetimeformat = "%Y-%m-%d %I:%M %p",
-                                outfile = NULL,
+                                file = NULL,
                                 kml_folder = NULL) {
   suppressPackageStartupMessages(require(plotKML))
   suppressPackageStartupMessages(require(tools))
   if (is.null(kml_folder) == TRUE) {
-    if (!is.null(outfile)) {
-      kml_folder <- basename(outfile)
-      kml_folder <- sub(".kml", "", kml_folder, ignore.case =TRUE)
-      kml_folder <- sub(".kmz", "", kml_folder, ignore.case =TRUE)
+    if (!is.null(file)) {
+      outfile <- file.path(getwd(), file)
     } else {
-      kml_folder <- deparse(substitute(df))
+      outfile <- file.path(getwd(), deparse(substitute(df)))
     }
-  }
-  if (is.null(outfile)) {
-    if (!is.null(kml_folder)) {
-      outfile <- paste(getwd(), "/", kml_folder, sep="")
-      } else {
-        outfile <- paste(getwd(), "/", deparse(substitute(df)), sep="")
-      }
   } else {
-    if (dirname(outfile) == "."){
-      outfile <- paste(getwd(), "/", outfile, sep="") 
+    if (!is.null(file)) {
+      outfile <- file.path(kml_folder, file)
+    } else {
+      outfile <- file.path(kml_folder, deparse(substitute(df)))
     }
   }
   if (file_ext(outfile) == "") {
-    outfile <- paste(outfile, ".kml", sep="")  # if object has no extension
+    outfile <- paste0(outfile, ".kml")  # if object has no extension
   } 
   df <- df 
   df$id <- df[ ,id]  
@@ -314,7 +311,7 @@ ExportKMLTelemetry <- function (df,
   "<kml xmlns=\"http://www.opengis.net/kml/2.2\"\n",      
   "xmlns:gx=\"http://www.google.com/kml/ext/2.2\"\n",
   "xmlns:atom=\"http://www.w3.org/2005/Atom\">\n\n",
-  "<Document>\n", "\t<name>",kml_folder,"</name>\n",file = outfile, 
+  "<Document>\n", "\t<name>",file,"</name>\n",file = outfile, 
   append = FALSE, sep = "") 
   ## Icon Style Section ##  
   if (is.null(point_color)) point_color <- id

@@ -54,16 +54,16 @@ AddLandscapeValues <- function(df,
       nlcd_classes <- read.csv(file.path("C:/ArcGIS/Data/Landcover",
         "NCLD_Landcover_Class_Definitions.csv"), header=TRUE, as.is=TRUE, 
         na.strings = "") 
-   #   if(is.integer(nlcd_classes$lc)) nlcd_classes$lc <- as.numeric(nlcd_classes$lc)
+#  if(is.integer(nlcd_classes$lc)) nlcd_classes$lc <-as.numeric(nlcd_classes$lc)
       df <- plyr::join(x=df, y=nlcd_classes, by="lc")
       df$definition <- NULL
     }
   }
-  cat("The following columns were added to the dataframe:",sep="\n")
-  names_sorted<-rev(sort(col_names_list, decreasing=TRUE))
+  cat("The following columns were added to the dataframe:", sep="\n")
+  names_sorted <- rev(sort(col_names_list, decreasing=TRUE))
   results <- sapply(names_sorted, function(i) paste(" ", i))
   cat(results, sep="\n")
- return(df)
+  return(df)
 }
 
 # CreateArcGISMaps Function ----------------------------------------------------
@@ -508,7 +508,7 @@ CreateKDEProbs <- function(kde_object = kde_object,
 ###   probability estimates
 ###  Usage: CreateKDERaster(kde_points, cell_size, crs)
 ###  Arguments: kde_points = dataframe of kde estimates at gridded points
-###             cell_size = cell size of output raster, default = 50 
+###             cell_size = cell size of output raster, default = 30 
 ###             crs = crs of output raster, default is UTM 19N, NAD83
 ###  Returns: A 'RasterLayer' object with kde estimates for each of the blank 
 ###    raster cells that fall within the buffered df locations.            
@@ -519,7 +519,7 @@ CreateKDEProbs <- function(kde_object = kde_object,
 ###  2014.09.02  
   
 CreateKDERaster <- function(kde_points = kde_points,
-                            cell_size = 50,
+                            cell_size = 30,
                             crs = paste("+proj=utm +zone=19 +datum=NAD83",
                                         "+units=m +no_defs +ellps=GRS80", 
                                         "+towgs84=0,0,0")) {
@@ -531,38 +531,6 @@ CreateKDERaster <- function(kde_points = kde_points,
   return(kde_raster)
 }
 
-# CreateRasterMCFromPoints Function --------------------------------------------
-
-###  Creates a 'RasterLayer' based on an input dataframe of point locations 
-###  Usage: CreateRasterMCfromPoints(df, field, lat, long, mc)
-###  Arguments: df = input dataframe with columns for lat, long, and data column
-###             field = column name with data for cell values
-###             long = latitude 
-###             lat = longitude 
-###             mc = raster that is used to rasterize() the input data  
-###  Returns: A 'RasterLayer' object with values in all the cells that had 
-###    locations.            
-###  Notes: Input latitude and longitude must match the CRS of 'mc' parameter. 
-###    Returned 'RasterLayer' has same CRS as 'mc' parameter.    
-###  Blake Massey
-###  2014.09.02 
-
-CreateRasterMCFromPoints <- function(df,
-                                     field,
-                                     long, 
-                                     lat, 
-                                     mc = file.path("C:/ArcGIS/Data",
-                                       "BlankRaster/maine_30mc.tif")) { 
-  suppressPackageStartupMessages(require(raster))
-  df <- df
-  xy <- data.frame(x=df[,long], y=df[,lat])  
-  mc_raster <- raster(mc)
-  mc_raster[] <- NA
-  output_raster <- rasterize(xy, mc_raster, field=df[,field], 
-    updateValue='all', fun='last', background = NA)
-  return(output_raster)
-}
-
 # CreateProbIsoplethRaster Function --------------------------------------------
 
 ###  A wrapper function of used to create a RasterLayer of probabilities based 
@@ -571,7 +539,7 @@ CreateRasterMCFromPoints <- function(df,
 ###  Arguments: df = dataframe of location data
 ###             buffer = value used in CreateExtentBuffer() around df locations,
 ###               default is 500 m
-###             cell_size = cell size of output raster, default = 50
+###             cell_size = cell size of output raster, default = 30
 ###             probs = vector [0,1] of probability values, default value is 
 ###               seq(0,1,by=.1)
 ###  Returns: A Raster object with a probability estimate for each
@@ -582,7 +550,7 @@ CreateRasterMCFromPoints <- function(df,
 
 CreateProbIsoplethRaster <- function(df,
                                      buffer = 500,
-                                     cell_size = 50,
+                                     cell_size = 30,
                                      probs = seq(0,1, by=.1)) {
   source('C:/Work/R/Functions/gis.R')
   kde_points <- CreateKDEPoints(df = df, df_long = "long_utm", 
@@ -594,6 +562,118 @@ CreateProbIsoplethRaster <- function(df,
   kde_probs <- CreateKDEProbs(kde_object = kde_points, kde_raster = kde_raster, 
     probs = probs) 
   return(kde_probs)
+}
+
+# CreateRasterFromPointsAndBase Function ---------------------------------------
+
+###  Creates a 'RasterLayer' from an input dataframe of point locations and 
+###    a base RasterLayer that sets the CRS and cell locations for the output
+###  Usage: CreateRasterFromPointsAndBase(df, value, x, y, buffer, base)
+###  Arguments: df = input dataframe with columns for lat, long, and value
+###             value = column name with data for cell values
+###             x = column name for latitude coordinates 
+###             y = column name for longitude coordinates
+###             buffer = distance in cell units to buffer around 'df' points for  
+###               output Rasterlayer. If NULL(default), the entire extent of the
+###               mc parameter is used for the output Rasterlayer.
+###             base = raster that is used to rasterize() the input data, 
+###               default is set to a RasterLayer specific to my BAEA project   
+###  Returns: A 'RasterLayer' object with values in all the cells that had 
+###    locations.
+###  Notes: Input latitude and longitude must match the CRS of base raster. 
+###    Returned 'RasterLayer' has same CRS as base raster.    
+###  Blake Massey
+###  2015.01.05 
+
+CreateRasterFromPointsAndBase <- function(df,
+                                          value,
+                                          x, 
+                                          y,
+                                          buffer = NULL, 
+                                          base = file.path("C:/ArcGIS/Data",
+                                            "BlankRaster/maine_30mc.tif")) { 
+  suppressPackageStartupMessages(require(raster))
+  df <- df
+  xy <- data.frame(x=df[,x], y=df[,y])  
+  coordinates(xy) <- c("x", "y")  
+  base <- raster(base)
+  proj4string(xy)  <- crs(base)  
+  if (!is.null(buffer)) { 
+    xy_area <- extend(extent(xy), .01)  # needs to have area
+    base_crop <- crop(base, xy_area, snap='out')
+    base_buffer <- extend(base_crop, buffer)
+    base_extent <- crop(base, base_buffer)    
+  } else {
+    base_extent <- base 
+  }
+  output <- rasterize(xy, base_extent, field=df[,value], updateValue='all', 
+    fun='last', background = NA)
+  return(output)
+}
+
+# CreateRasterNestConDist Function ---------------------------------------------
+
+###  Creates a list of RasterLayers of distances to study nests (nests to create 
+###   rasters for) and all nests (all conspecific nests in the area) 
+###  Usage: CreateRasterNestConDist(years, buffer, study_nests, all_nests)
+###  Arguments: years = vector of years to calculate distances
+###             buffer = distance in cell units to buffer around nests for  
+###               calculating the distance to conspecifics. Default is 1000. 
+###             study_nests = nests with "active_(year)", "eagle_id", "lat_utm", 
+###               and "long_utm" columns
+###             all_nests = nests with "active_(year)", "lat_utm", and 
+###               "long_utm"                
+###  Returns: A list of Rasters with nest and conspecific distances for all 
+###    cells within buffer distance of the study nests. List is structured as:
+###    list[[year]][[nest_id]]
+###  Notes: Some of the functions are hardwired with specific column names
+###  Blake Massey
+###  2014.12.11 
+
+CreateRasterNestConDist <- function(years,
+                                    buffer = 1000,
+                                    study_nests,
+                                    all_nests) {
+  years <- years
+  nest_con_dist <- as.list(setNames(rep(NA,length(years)), as.numeric(years)), 
+    years)
+  for (i in 1:length(years)){
+    year <- years[i]
+    active_year <- paste0("active_", year)
+    study_nests_yr <- study_nests[!is.na(study_nests$eagle_id) & 
+      study_nests[,active_year] == TRUE, ] 
+    all_nests_yr <- all_nests[all_nests[,active_year] == TRUE,] 
+    study_nests_yr_30mc <- CreateRasterMCFromPoints(study_nests_yr, 
+      value="nest_id_num", long="nest_long_utm", lat="nest_lat_utm")
+    all_nests_yr_30mc <- CreateRasterMCFromPoints(all_nests_yr, 
+      value="nest_id_num", long="nest_long_utm", lat="nest_lat_utm")
+    coordinates(study_nests_yr) <- c("nest_long_utm", "nest_lat_utm") 
+    proj4string(study_nests_yr)  <- CRS("+proj=utm +zone=19 +datum=NAD83")
+    coordinates(all_nests_yr) <- c("nest_long_utm", "nest_lat_utm") 
+    proj4string(all_nests_yr)  <- CRS("+proj=utm +zone=19 +datum=NAD83")
+    study_nests_ids <- unique(study_nests_yr$nest_id)
+    study_nests_list <- as.list(setNames(rep(NA,length(study_nests_ids)), 
+      study_nests_ids), study_nests_ids)
+    for (j in 1:nrow(study_nests_yr)){      
+      nest <- study_nests_yr[j,]
+      nest_id <- study_nests_yr@data[j, "nest_id"]
+      nest_cell_extent <- extend(extent(nest), .01)
+      nest_cell <- crop(study_nests_yr_30mc, nest_cell_extent, snap='out')
+      nest_area <- extend(nest_cell, buffer)
+      nest_dist <- distance(nest_area)
+      nest_dist@file@name <- "nest_dist"
+      con_area <- crop(all_nests_yr_30mc, nest_area, snap='out')  
+      con_area_mask <- mask(con_area, nest_area, inverse=TRUE) 
+      con_dist <- distance(con_area_mask)
+      con_dist@file@name <- "con_dist"
+      nest_stack <- stack(nest_dist,con_dist)
+      names(nest_stack) <- c("nest_dist", "con_dist")
+      nest_stack@filename <- nest_id
+      study_nests_list[[j]] <- nest_stack
+    }
+    nest_con_dist[[i]] <- study_nests_list
+  }
+  return(nest_con_dist)
 }
 
 # CreateSpatialLines Function --------------------------------------------------
@@ -1087,28 +1167,28 @@ ExportKMLProbContour <- function(probs_raster = probs_raster,
 ###  2014.09.15
 
 ExportKMLRaster <- function (object = object,
-                              object_layer = NULL,
-                              outfile = NULL,
-                              kml_name = NULL,
-                              categorical = FALSE,
-                              metadata = NULL,
-                              metadata_layer = NULL,
-                              color_pal = c("yellow","red"),
-                              color_alpha = "cc",
-                              color_range = NULL,
-                              color_min = NULL,
-                              color_max = NULL,
-                              color_levels = 5,
-                              color_increment = NULL,                          
-                              legend_levels = 5,
-                              legend_values = NULL,
-                              log = FALSE,
-                              signif_digits = 3,
-                              outline = 0,
-                              alt_mode = "clampToGround",
-                              extrude = 0,
-                              labelscale = 0,
-                              create_kmz = FALSE) {   
+                             object_layer = NULL,
+                             outfile = NULL,
+                             kml_name = NULL,
+                             categorical = FALSE,
+                             metadata = NULL,
+                             metadata_layer = NULL,
+                             color_pal = c("yellow","red"),
+                             color_alpha = "cc",
+                             color_range = NULL,
+                             color_min = NULL,
+                             color_max = NULL,
+                             color_levels = 5,
+                             color_increment = NULL,                          
+                             legend_levels = 5,
+                             legend_values = NULL,
+                             log = FALSE,
+                             signif_digits = 3,
+                             outline = 0,
+                             alt_mode = "clampToGround",
+                             extrude = 0,
+                             labelscale = 0,
+                             create_kmz = FALSE) {   
   suppressPackageStartupMessages(require(maptools))
   suppressPackageStartupMessages(require(plotKML))
   suppressPackageStartupMessages(require(plyr))
@@ -1263,600 +1343,6 @@ ExportKMLRasterOverlay<-function(x = x,
   KML(x, file=outfile, col=cols, colNA=NA, maxpixels=500000, blur=10, zip='', 
     overwrite=TRUE)
 }
-
-# # ExportKMLTelemetry (moved) Function --------------------------------------------------
-# 
-# ###  Create a Google Earth KML file (points and multitrack) from lat/long 
-# ###    coordinates
-# ###  Usage: ExportKMLTelemetry(df, metadata, outfile, kml_folder, id, datetime, 
-# ###    lat, long, speed, alt, alt_mode, behavior, behavior_color, path, extrude, 
-# ###    labelscale, dateformat, timeformat, datetimeformat) 
-# ###  Arguments: df = input dataframe; must have ID, lat, long, and datetime 
-# ###             metadata = location of metadata .csv file. Metadata file must 
-# ###               contain columns for animal ID, hexadecimal colors, and
-# ###               additional icon data.
-# ###             outfile = location of output KML file
-# ###             kml_folder = name for parent KML folder
-# ###             id = column name of unique identifier
-# ###             datetime = column name of datetime in POSIXct format or as a 
-# ###               character in the format (%Y/%m/%d %H:%M)
-# ###             lat = column name of latitude coordinates (WGS84, dec. degree)
-# ###             long = column name of longitude coordinates (WGS84, dec. degree)
-# ###             speed = input dataframe column name for speed. Optional
-# ###             alt = input dataframe column name for altitude(m). Optional.
-# ###             alt_mode = based on KML code: "absolute","clampedToGround",
-# ###               "relativeToGround" (see KML documentation for description).
-# ###               Default is "clampedToGround"
-# ###             behavior = input dataframe column name for behavior. Optional
-# ###             behavior_color = colors are determined by behavior, shape by sex
-# ###             path = to create paths. Default is TRUE.
-# ###             extrude = either 0 (default) or 1: 0 if for no line, 
-# ###               1 extends a line from the point to the ground. 
-# ###             labelscale = adjusts the size of the Google Earth location 
-# ###               point labels. Default is 0, which hides the labels. To show 
-# ###               labels, change to a value between 0.7-1.
-# ###             dateformat = changes the format of the date in the Google Earth 
-# ###               location pop-up windows. Default is "%Y/%m/%d".
-# ###             timeformat = changes the format of the time in the Google Earth  
-# ###               locations pop-up windows. Default is "%I:%M %p".        
-# ###             datetimeformat = changes the datetime format for the label of 
-# ###               highlighted points. Default is "%Y/%m/%d %I:%M %p"
-# ###  Returns: KML of points and multitracks          
-# ###  Notes: 
-# ###  Blake Massey
-# ###  2014.06.02
-# 
-# ExportKMLTelemetry <- function (df = df,
-#                                 metadata = file.path("C:/Work/R/Data",
-#                                   "BAEA/BAEA_gps_data.csv"),
-#                                 outfile ="C:/Users/Blake/Desktop/BAEA Data.kml",
-#                                 kml_folder = "BAEA Data",
-#                                 id = "id",                       
-#                                 datetime = "datetime",
-#                                 lat = "lat",
-#                                 long = "long",
-#                                 speed = NULL,
-#                                 alt = NULL,
-#                                 alt_mode = "clampToGround",
-#                                 behavior = NULL,
-#                                 behavior_color = FALSE,
-#                                 path = TRUE,
-#                                 extrude = 0,
-#                                 labelscale = 0, 
-#                                 dateformat = "%Y-%m-%d", 
-#                                 timeformat = "%I:%M %p",
-#                                 datetimeformat = "%Y-%m-%d %I:%M %p") {
-#   suppressPackageStartupMessages(require(plotKML))
-#   df$id <- df[ ,id]  # write id to the "id" column
-#   ifelse(is.numeric(df$id), id_type<-"serial", id_type<-"deploy_location")
-#   df$lat <- df[ ,lat]  # writes lat to the "lat"column
-#   df$long <- df[ ,long]  # writes longitude to the "long" column
-#   if (alt_mode == "absolute" | alt_mode == "relativeToGround") {
-#   df$alt <- df[ ,alt]  # writes altitude to the "alt" column
-#   alt1 <- '\t\t\t\t\tAltitude: '  # writes first part of "Altitude" description
-#   alt2 <- '\n'  # writes second part of "Altitude" description
-#   } else {
-#   df$alt <- ""  # makes the altitude column a vector of blank values  
-#   alt1 <- NULL  # prevents "Altitude" description from being written
-#   alt2 <- NULL  # prevents "Altitude" description from being written    
-#   }
-#   if (!is.null(speed)) {
-#   df$speed <- df[,speed]  # writes speed to the "speed" column
-#   spd1 <- '\t\t\t\t\tSpeed: '  # writes first part of the "Speed" description
-#   spd2 <- '\n'  # writes second part of the "Speed" description
-#   } else {
-#   df$speed <- ""  # makes the speed column a vector of blank values  
-#   spd1 <- NULL  # prevents "Speed" description from being written
-#   spd2 <- NULL  # prevents "Speed" description from being written    
-#   }
-#   if (!is.null(behavior)) {
-#   df$behavior <- df[,behavior]  # writes behavior to the "behavior" column
-#   beh1 <- '\t\t\t\t\tBehavior: '  # first part of the "Behavior" description
-#   beh2 <- '\n'  # second part of the "Behavior" description
-#   } else {
-#   df$behavior <- ""  # makes the behavior column a vector of blank values  
-#   beh1 <- NULL  # prevents "Behavior" description from being written
-#   beh2 <- NULL  # prevents "Behavior" description from being written    
-#   }
-#   df$datetime <- df[,datetime]
-#   df$datetime <- as.character(df$datetime)  # needed for KML parsing
-#   df$datetimebegin <- df$datetime
-#   end_times <- function(data) {   # returns "datetimeend" 
-#     data$datetime2 <- data$datetime[c(2:length(data$datetime), 
-#     length(data$datetime))]
-#   } 
-#   id <- as.character(df$id)  # vector of ids, as.character removes factor levels
-#   df_split <- split(df, id)  # divides data by ids 
-#   df_split <- lapply(df_split, end_times)  # 'end_times' on each section of data
-#   datetimeend <- unsplit(df_split, id)  # returns array of returned values
-#   df <- cbind(df, datetimeend)  # adds datetimeend column to original baea data
-#   #if (behavior_color == TRUE) {
-#   PlacemarkPoint <- function(plname, X, Y, Z, SP, BH, ID, SD, ST, ED, ET, DA,
-#     TM) {
-#   ifelse(behavior_color == TRUE, icon_style <- paste(sex,"-",BH,sep=""), 
-#     icon_style <- unique.id)
-#   cat("\t<Placemark>\n",
-#   "\t\t<name>", plname, "</name>\n",
-#   "\t\t<TimeSpan>\n",
-#   "\t\t\t<begin>",SD ,"T" ,ST ,"</begin> " , "\n",
-#   "\t\t\t<end>", ED, "T", ET, "</end> ", "\n",
-#   "\t\t</TimeSpan>\n",
-#   "\t\t\t<Snippet></Snippet>", "\n",
-#   "\t\t\t\t<description>\n",
-#   "\t\t\t\t\tID: ", ID, "\n",
-#   "\t\t\t\t\tDate: ", DA, "\n",
-#   "\t\t\t\t\tTime: ", TM, "\n",
-#   "\t\t\t\t\tLongitude: ", X, "\n",
-#   "\t\t\t\t\tLatitude: ", Y, "\n",
-#   alt1, Z, alt2,  # written when alt is "absolute" or "relativeToGround"
-#   spd1, SP, spd2,  # written when speed exists
-#   beh1, BH, beh2, # written when behavior exists
-#   "\t\t\t\t</description>", "\n",  
-#   "\t\t\t<styleUrl>#Point_",icon_style,"</styleUrl>\n", 
-#   "\t\t\t<Point>\n",
-#   "\t\t\t\t<extrude>", extrude, "</extrude>\n",
-#   "\t\t\t\t<altitudeMode>", alt_mode, "</altitudeMode>\n",
-#   "\t\t\t\t\t<coordinates>", X, ",", Y, ",", Z, "</coordinates>\n",
-#   "\t\t\t</Point>\n",
-#   "\t</Placemark>\n",
-#   file = outfile, append = TRUE, sep = "")  
-#   }    
-#   if (file.exists(outfile)) file.remove(outfile)  # delete KML if already exists
-#   writeLines(noquote(c("Writing: ", outfile)))
-#   ## Title Section ##
-#   cat("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",      
-#   "<kml xmlns=\"http://www.opengis.net/kml/2.2\"\n",      
-#   "xmlns:gx=\"http://www.google.com/kml/ext/2.2\"\n",
-#   "xmlns:atom=\"http://www.w3.org/2005/Atom\">\n\n",
-#   "<Document>\n", "\t<name>",kml_folder,"</name>\n",file = outfile, 
-#   append = FALSE, sep = "") 
-#   ## Icon Style Section ##
-#   metadata<-read.csv(metadata, header=TRUE, as.is=TRUE, na.strings = "")
-#   if (!("id" %in% colnames(metadata))){  
-#     metadata$id <- metadata[,id_type]   # id_type = serial or deploy_location
-#   if (id_type == "serial"){ # specific to BAEA project
-#     metadata <- subset(metadata, is.na(deploy_location))  # not deployed 
-#   } else {  # specific to BAEA project
-#     metadata <- subset(metadata, !is.na(deploy_location))  # only deployed
-#   }
-#   row.names(metadata) <- NULL
-#   }  
-#   hi_icon_label_scale <- 0.75
-#   icon_scale <- 0.7
-#   ball_bg_color <- "ff333333"
-#   ball_text_color <- "ffffffff"    
-#   mt_icon_href <-
-#     "http://earth.google.com/images/kml-icons/track-directional/track-0.png"
-#   if (behavior_color == TRUE) {
-#   behavior_colors_org <- CreateColorsByBehavior(output=TRUE)
-#   behavior_colors <- col2kml(behavior_colors_org)
-#   names(behavior_colors) <- names(behavior_colors_org)  # converts to KML color
-#   behavior_colors <- gsub("#ff", "", behavior_colors)  # changes Alpha level
-#   sex <- rep(c("male", "female"), each=length(behavior_colors))  
-#   behavior <- rep(names(behavior_colors), 2)
-#   icon_color <- rep(unname(behavior_colors),2)
-#   href<-rep(c("http://maps.google.com/mapfiles/kml/shapes/placemark_square.png",
-#     "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"), 
-#     each=length(behavior_colors))
-#   behaviors <- data.frame(sex, behavior, icon_color,href,stringsAsFactors=FALSE)
-#   for (i in 1:nrow(behaviors)){
-#   row <- behaviors[i, ]
-#   sex <- row[, "sex"]
-#   behavior <- row[, "behavior"]
-#   icon_color <- row[ ,"icon_color"]
-#   icon_href <- row[, "href"]
-#   icon_m <- "http://maps.google.com/mapfiles/kml/shapes/placemark_square.png"
-#   icon_f <- "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
-#   icon_na <- "http://maps.google.com/mapfiles/kml/shapes/shaded_dot.png"
-#   icon_na_color <- "50969696"
-#   icon_na_color_hi <- "75969696"
-#   icon_na_scale <- 0.3
-#   cat("\t<StyleMap id=\"Point_",sex,"-",behavior,"\">\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>normal</key>\n",
-#   "\t\t\t\t<Style>\n",  
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>",labelscale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>FF",icon_color,"</color>\n",
-#   "\t\t\t\t\t\t<scale>",icon_scale,"</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_href,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>highlight</key>\n",
-#   "\t\t\t\t<Style>\n",
-#   "\t\t\t\t\t<LabelStyle>\n",     
-#   "\t\t\t\t\t<scale>",hi_icon_label_scale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>FF",icon_color,"</color>\n", 
-#   "\t\t\t\t\t\t<scale>0.8</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_href,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>", "\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>", "\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n", 
-#   "\t\t</Pair>\n",
-#   "\t</StyleMap>\n",
-#   file = outfile, append = TRUE, sep = "")
-#   }         
-#   cat("\t<StyleMap id=\"Point_m-NA\">\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>normal</key>\n",
-#   "\t\t\t\t<Style>\n",  
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>",labelscale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>",icon_na_color,"</color>\n",
-#   "\t\t\t\t\t\t<scale>",icon_na_scale,"</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_na,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>highlight</key>\n",
-#   "\t\t\t\t<Style>\n",
-#   "\t\t\t\t\t<LabelStyle>\n",     
-#   "\t\t\t\t\t<scale>",hi_icon_label_scale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>",icon_na_color_hi,"</color>\n", 
-#   "\t\t\t\t\t\t<scale>",icon_na_scale,"</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_na,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>", "\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>", "\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n", 
-#   "\t\t</Pair>\n",
-#   "\t</StyleMap>\n",  
-#   "\t<StyleMap id=\"Point_f-NA\">\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>normal</key>\n",
-#   "\t\t\t\t<Style>\n",  
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>",labelscale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>",icon_na_color,"</color>\n",
-#   "\t\t\t\t\t\t<scale>",icon_na_scale,"</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_na,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>highlight</key>\n",
-#   "\t\t\t\t<Style>\n",
-#   "\t\t\t\t\t<LabelStyle>\n",     
-#   "\t\t\t\t\t<scale>",hi_icon_label_scale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>",icon_na_color_hi,"</color>\n", 
-#   "\t\t\t\t\t\t<scale>",icon_na_scale,"</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_na,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>", "\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>", "\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n", 
-#   "\t\t</Pair>\n",
-#   "\t</StyleMap>\n",
-#   "\t<StyleMap id=\"Track_male\">\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>normal</key>\n",
-#   "\t\t\t\t<Style>\n", 
-#   "\t\t\t\t\t<LabelStyle>\n",
-#   "\t\t\t\t\t<scale>0</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t<IconStyle>\n",
-#   "\t\t\t\t<scale>1</scale>\n",
-#   "\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",mt_icon_href,"</href>\n",
-#   "\t\t\t\t</Icon>\n",
-#   "\t\t\t</IconStyle>\n",
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>Male - Path</text>\n",       
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t<LineStyle>\n",
-#   "\t\t\t\t<color>99F01E14</color>\n",
-#   "\t\t\t\t<width>1</width>\n",
-#   "\t\t\t</LineStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>highlight</key>\n",
-#   "\t\t\t\t<Style>\n", 
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>0</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t<IconStyle>\n",
-#   "\t\t\t\t<scale>1</scale>\n",
-#   "\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",mt_icon_href,"</href>\n",
-#   "\t\t\t\t</Icon>\n",
-#   "\t\t\t</IconStyle>\n",
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>Male - Path</text>\n",       
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t<LineStyle>\n",
-#   "\t\t\t\t<color>99F01E14</color>\n",  # male path color 
-#   "\t\t\t\t<width>1</width>\n",
-#   "\t\t\t</LineStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t</StyleMap>\n",      
-#   ## Style Map for Track_f ##  
-#   "\t<StyleMap id=\"Track_female\">\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>normal</key>\n",
-#   "\t\t\t\t<Style>\n", 
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>0</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t<IconStyle>\n",
-#   "\t\t\t\t<scale>1</scale>\n",
-#   "\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",mt_icon_href,"</href>\n",
-#   "\t\t\t\t</Icon>\n",
-#   "\t\t\t</IconStyle>\n",
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>Female - Path</text>\n",       
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t<LineStyle>\n",
-#   "\t\t\t\t<color>99A078F0</color>\n",  # female path color
-#   "\t\t\t\t<width>1</width>\n",
-#   "\t\t\t</LineStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>highlight</key>\n",
-#   "\t\t\t\t<Style>\n", 
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>0</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t<IconStyle>\n",
-#   "\t\t\t\t<scale>1</scale>\n",
-#   "\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",mt_icon_href,"</href>\n",
-#   "\t\t\t\t</Icon>\n",
-#   "\t\t\t</IconStyle>\n",
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>Female - Path</text>\n",       
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t<LineStyle>\n",
-#   "\t\t\t\t<color>99A078F0</color>\n",  # female path color
-#   "\t\t\t\t<width>1</width>\n",
-#   "\t\t\t</LineStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t</StyleMap>\n",   
-#   file = outfile, append = TRUE, sep = "") 
-#   } else {
-#   df_ids <- unique(df$id)
-#   metadata <- subset(metadata, id %in% df_ids) 
-#   icon_href <- "http://maps.google.com/mapfiles/kml/shapes/placemark_square.png"
-#   for (i in 1:nrow(metadata)) {
-#   row <- metadata[i, ]
-#   id <- row[, "id"]
-#   icon_color <- col2kml(row[ ,"icon_color"])
-#   icon_color <- gsub("#ff", "", icon_color)
-#   icon_scale <- 0.7
-#   cat("\t<StyleMap id=\"Point_",id,"\">\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>normal</key>\n",
-#   "\t\t\t\t<Style>\n",  
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>",labelscale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>FF",icon_color,"</color>\n",
-#   "\t\t\t\t\t\t<scale>",icon_scale,"</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_href,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",        
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>highlight</key>\n",
-#   "\t\t\t\t<Style>\n",
-#   "\t\t\t\t\t<LabelStyle>\n",     
-#   "\t\t\t\t\t<scale>",hi_icon_label_scale,"</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t\t\t<IconStyle>\n",
-#   "\t\t\t\t\t\t<color>FF",icon_color,"</color>\n", 
-#   "\t\t\t\t\t\t<scale>0.8</scale>\n", 
-#   "\t\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",icon_href,"</href>\n",
-#   "\t\t\t\t\t</Icon>\n",
-#   "\t\t\t\t\t</IconStyle>\n",      
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>$[description]</text>\n", 
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>", "\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>", "\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t\t</Style>\n", 
-#   "\t\t</Pair>\n",
-#   "\t</StyleMap>\n",
-#   ## Style Map for Track ##
-#   "\t<StyleMap id=\"Track_",id,"\">\n",
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>normal</key>\n",
-#   "\t\t\t\t<Style>\n", 
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>0</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t<IconStyle>\n",
-#   "\t\t\t\t<scale>1</scale>\n",
-#   "\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",mt_icon_href,"</href>\n",
-#   "\t\t\t\t</Icon>\n",
-#   "\t\t\t</IconStyle>\n",
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>",id,"- Path</text>\n",       
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t<LineStyle>\n",
-#   "\t\t\t\t<color>dd",icon_color,"</color>\n",
-#   "\t\t\t\t<width>1</width>\n",
-#   "\t\t\t</LineStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",    
-#   "\t\t<Pair>\n",
-#   "\t\t\t<key>highlight</key>\n",
-#   "\t\t\t\t<Style>\n", 
-#   "\t\t\t\t\t<LabelStyle>\n",      
-#   "\t\t\t\t\t<scale>0</scale>\n",  # to show label 
-#   "\t\t\t\t\t</LabelStyle>\n",
-#   "\t\t\t<IconStyle>\n",
-#   "\t\t\t\t<scale>1</scale>\n",
-#   "\t\t\t\t<Icon>\n",
-#   "\t\t\t\t\t<href>",mt_icon_href,"</href>\n",
-#   "\t\t\t\t</Icon>\n",
-#   "\t\t\t</IconStyle>\n",
-#   "\t\t\t\t\t<BalloonStyle>\n",
-#   "\t\t\t\t\t<text>",id," - Path</text>\n",       
-#   "\t\t\t\t\t\t<bgColor>",ball_bg_color,"</bgColor>\n",
-#   "\t\t\t\t\t\t<textColor>",ball_text_color,"</textColor>\n",
-#   "\t\t\t\t\t</BalloonStyle>\n",
-#   "\t\t\t<LineStyle>\n",
-#   "\t\t\t\t<color>ee",icon_color,"</color>\n",
-#   "\t\t\t\t<width>1</width>\n",
-#   "\t\t\t</LineStyle>\n",
-#   "\t\t\t\t</Style>\n",
-#   "\t\t</Pair>\n",
-#   "\t</StyleMap>\n",              
-#   file = outfile, append = TRUE, sep = "")
-#   }  
-#   }  # end of icon loops 
-#   ids <- as.character(unique(df$id))  # as.character removes factor levels
-#   for (i in ids){
-#   sv = df$id %in% i
-#   unique.id <- as.character(unique(df$id[sv]))    
-#   sex <- as.character(unique(df$sex[sv]))
-#   cat("<Folder>\n","<name>",unique.id,"</name>\n","<open>0</open>\n",
-#   file = outfile, append = TRUE, sep = "")
-#   cat("\t<Folder>\n","\t<name>",unique.id," - Locations</name>\n",
-#     "\t<open>0</open>\n", file = outfile, append = TRUE, sep = "")
-#   locs <- subset(df, id==unique.id)
-#   for (i in 1:nrow(locs)){
-#   loc <- locs[i,]
-#   Xs <- loc[, "long"]
-#   Ys <- loc[, "lat"]
-#   Zs <- loc[, "alt"]
-#   SPs <- loc[, "speed"]
-#   BHs <- loc[, "behavior"]
-#   IDs <- unique.id 
-#   SDs <- substring(loc$datetime, 1,10) #start date
-#   STs <- substring(loc$datetime, 12,16) #start time 
-#   EDs <- substring(loc$datetimeend, 1,10) #end date
-#   ETs <- substring(loc$datetimeend, 12,19) #end time 
-#   DAs <- strftime(loc[, "datetimebegin"], dateformat)
-#   TMs <- strftime(loc[, "datetimebegin"], timeformat)      
-#   plnms <- strftime(loc[, "datetimebegin"], datetimeformat)
-#   PlacemarkPoint(plnms, Xs, Ys, Zs, SPs, BHs, IDs, SDs, STs, EDs, ETs, DAs, TMs)     
-#   }      
-#   cat("\t</Folder>\n", file = outfile, append = TRUE, sep = "")
-#   locs$Ts <- "T"
-#   locs$Zs <- "Z"
-#   locs$datetimedate <-substring(locs$datetime, 1,10) #start date
-#   locs$datetimetime <- substring(locs$datetime, 12,16) #start time
-#   whens <- locs[, c("datetimedate","Ts","datetimetime", "Zs")]
-#   sgmts <- locs[, c("long","lat","alt")]
-#   unique.id <- unique(locs$id)
-#   bloc2 <- NULL
-#   if (path == TRUE) {
-#   if (behavior_color == TRUE) {
-#   bloc2 <- c(bloc2, paste(
-#   "\t<Placemark>\n",
-#   "\t\t<name>",unique.id," - Path</name>\n",
-#   "\t\t<styleUrl>#Track_",sex,"</styleUrl>\n",
-#   "\t\t<gx:balloonVisibility>0</gx:balloonVisibility>\n",
-#   "\t\t<gx:Track>\n",
-#   "\t\t<altitudeMode>",alt_mode,"</altitudeMode>\n",
-#   paste(paste("\t\t\t\t\t<when>", apply(whens, 1, paste, collapse = ""), 
-#     sep = ""), "</when>", collapse = "\n"),"\n", 
-#   paste(paste("\t\t\t\t\t<gx:coord>", apply(sgmts, 1, paste, collapse = " "), 
-#     sep = ""),"</gx:coord>", collapse = "\n"),"\n", 
-#   "\t\t</gx:Track>\n",
-#   "\t</Placemark>\n",
-#   "\t</Folder>\n",                  
-#   sep = ""))  
-#   } else {
-#   bloc2 <- c(bloc2, paste(
-#   "\t<Placemark>\n",
-#   "\t\t<name>",unique.id," - Path</name>\n",
-#   "\t\t<styleUrl>#Track_",unique.id,"</styleUrl>\n",
-#   "\t\t<gx:balloonVisibility>0</gx:balloonVisibility>\n",
-#   "\t\t<gx:Track>\n",
-#   "\t\t<altitudeMode>",alt_mode,"</altitudeMode>\n",
-#   paste(paste("\t\t\t\t\t<when>", apply(whens, 1, paste, collapse = ""), 
-#     sep = ""), "</when>", collapse = "\n"),"\n", 
-#   paste(paste("\t\t\t\t\t<gx:coord>", apply(sgmts, 1, paste, collapse = " "), 
-#     sep = ""),"</gx:coord>", collapse = "\n"),"\n", 
-#   "\t\t</gx:Track>\n",
-#   "\t</Placemark>\n",
-#   "\t</Folder>\n",                  
-#   sep = ""))  
-#   }
-#   cat(bloc2, file = outfile, append = TRUE)                                      
-#   }
-#   }
-#   cat("</Document>\n</kml>", file = outfile, append = TRUE)
-# }
- 
 
 # ExportKMLWindProjects Function -----------------------------------------------
 
@@ -2229,6 +1715,39 @@ ExportKMLWindTurbines <- function (df = file.path("C:/Work/R/Data",
   cat("</Document>\n</kml>", file = outfile, append = TRUE)
 }
 
+# ExportRasterNestConDist Function ---------------------------------------------
+
+###  Creates a list of RasterLayers of distances to study nests (nests to create 
+###   rasters for) and all nests (all conspecific nests in the area) 
+###  Usage: ExportRasterNestConDist(nest_con_dist, dir)
+###  Arguments: nest_con_dist = list of RasterLayers of distances with the 
+###               structure of raster[[year]][[nest_id]]
+###             dir = directory for the output raster files                
+###  Returns: Exports rasters to directory location
+###  Notes: Some of the functions are hardwired with specific column names
+###  Blake Massey
+###  2014.12.11 
+
+ExportRasterNestConDist <- function(nest_con_dist = nest_con_dist,
+                                    dir = file.path("C:/ArcGIS/Data/BAEA/Nests",
+                                      "Distance_Rasters/")){
+  nest_con_dist <- nest_con_dist
+  for (i in 1:length(nest_con_dist)){
+    year <- nest_con_dist[[i]]
+    names(nest_con_dist[1])
+    for (j in 1:length(year)) {
+      nest <- year[[j]]
+      nest_id <- nest@filename
+      writeRaster(nest_con_dist[[i]][[j]][[1]], filename=file.path(dir, 
+        paste0(nest_id, "_nest_dist_" , names(nest_con_dist[i]), ".tif")), 
+        format="GTiff", overwrite=TRUE)
+      writeRaster(nest_con_dist[[i]][[j]][[2]], 
+        filename=file.path(dir, paste0(nest_id,"_con_dist_", 
+        names(nest_con_dist[i]),".tif")), format="GTiff", overwrite=TRUE)
+    }
+  }
+}
+
 # ExportShapefileFromPoints Function ###########################################
 
 ###  Exports shapefile of a dataframe's location data
@@ -2281,6 +1800,7 @@ ExportShapefileFromPoints <- function(df = df,
 ###  2014.09.09
 
 ImportLandscapeRasterStack <- function(){
+  suppressPackageStartupMessages(require(rgdal))
   suppressPackageStartupMessages(require(raster))
   hydro_50mc <- raster("C:/ArcGIS/Data/Hydrology/NHD_rasters/hydro_50mc.tif") 
   hydro_dir_50mc <- raster(file.path("C:/ArcGIS/Data/Hydrology/NHD_rasters",

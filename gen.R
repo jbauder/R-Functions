@@ -144,7 +144,7 @@ RemoveExcept <- function(object = object){
 }
 }
 
-# ReplaceFilesText  Function -----------------------------------------------
+# ReplaceFilesText Function ----------------------------------------------------
 
 ###  Replaces a string within files
 ###  Usage: ReplaceFilesText(object)
@@ -154,7 +154,7 @@ RemoveExcept <- function(object = object){
 ###  Returns: environment with only the one object         
 ###  Notes: 
 ###  Blake Massey
-###  2014.05.19
+###  2014.10.19
 
 ReplaceFilesText <- function(files, 
                              text, 
