@@ -166,13 +166,13 @@ ReplaceFilesText <- function(files,
   }
 }
 
-# SavePlot Function ------------------------------------------------------------
+# SaveGGPlot Function ----------------------------------------------------------
 
 ###  A wrapper function for ggsave()
-###  Usage: SavePlot(filename, path)
+###  Usage: SaveGGPlot(filename, path, width, height, units, dpi)
 ###  Arguments: filename = file name/filename of plot
 ###             path  = path to save plot to (if you just want to set path and 
-###               not filename). If not set, reverts to working directory
+###               not filename). If NULL(default), reverts to working directory
 ###             width = width, default is 10
 ###             height = height, default is 7.5
 ###             units	= units for width and height when either one is explicitly
@@ -183,19 +183,66 @@ ReplaceFilesText <- function(files,
 ###  Blake Massey
 ###  2014.10.11
 
-SavePlot <- function (filename, 
-                      path = getwd(),
-                      width = 10, 
-                      height = 7.5,
-                      units = "in",
-                      dpi=300){
+SaveGGPlot <- function (filename, 
+                        path = NULL,
+                        width = 10, 
+                        height = 7.5,
+                        units = "in",
+                        dpi=300){
   suppressPackageStartupMessages(require(ggplot2))
-  if(!exists("path")){ 
+  if(is.null("path")){ 
     path <- getwd()
   }
   ggsave(filename = filename, path = path, width=width, height=height, 
          units=units, dpi=dpi)
 }  
+
+# SavePlot Function ------------------------------------------------------------
+
+###  A function for saving the last displayed plot as a png, jpeg, or pdf.
+###  Usage: SavePlot(filename, path, width, height, units, dpi)
+###  Arguments: filename = file name/filename of plot
+###             path  = path to save plot to (if you just want to set path and 
+###               not filename). If NULL(default), uses working directory
+###             width = width, default is 10
+###             height = height, default is 7.5
+###             units  = units for image width and height when either one is 
+###               explicitly specified (in, cm, or mm), default is "in".
+###             dpi = dpi to use for plotting, default = 300
+###  Returns: Saves a file of the last displayed plot
+###  Notes: Default output format width and height are set for PowerPoint 
+###    presentations
+###  Blake Massey
+###  2015.01.15
+
+SavePlot <- function (filename, 
+                      path = NULL,
+                      width = 10, 
+                      height = 7.5,
+                      units = "in",
+                      dpi = 300){
+  suppressPackageStartupMessages(require(ggplot2))
+  suppressPackageStartupMessages(require(tools))
+  if (is.null(path)) { 
+    path <- getwd()
+  }
+  ext <- file_ext(filename)
+  if (ext == "") filename <- paste0(filename,".png")
+  filepath <- file.path(path, filename)
+  if (ext == "png") {
+    dev.copy(png, filename=filepath, width=width, height=height, units=units, 
+      pointsize=12, bg="white", res=dpi)
+    dev.off()
+  }
+  if (ext == "jpeg" || ext == "jpg") {
+    dev.copy(jpeg, filename=filepath, width=width, height=height, res=dpi, 
+      units=units, quality=100)
+    dev.off()
+  }
+  if (ext == "pdf") {
+    dev.copy2pdf(file=filepath, width=width, height=height, paper="special") 
+  }
+} 
 
 # SummarizeSE Function ---------------------------------------------------------
 
