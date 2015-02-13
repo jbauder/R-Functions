@@ -6,6 +6,7 @@ filenames <- c('C:/Work/R/Functions/baea.R',
                'C:/Work/R/Functions/gen.R',
                'C:/Work/R/Functions/gis.R', 
                'C:/Work/R/Functions/gps.R',
+               'C:/Work/R/Functions/home.R',
                'C:/Work/R/Functions/kml.R',
                'C:/Work/R/Functions/pars.R', 
                'C:/Work/R/Functions/sim.R')

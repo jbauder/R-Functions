@@ -204,9 +204,10 @@ CreateCategoricalLegend <-function(metadata,
 
 # CreateColorIntervalSequence Function -----------------------------------------
 
-###  Creates an interval sequence used for assigning entities to a color ramp
+###  Creates an interval sequence used for assigning color ramp values to 
+###    objects
 ###  Usage: CreateColorIntervalSequence(color_range, color_alpha, 
-###    color_increment,log)
+###    color_increment, log)
 ###  Arguments: color_range = two-valued vector, the minimum and maximum values.
 ###             color_levels = one value, number of color levels. Ignored if 
 ###               color_interval not equal to NA.
@@ -590,13 +591,14 @@ CreateRasterFromPointsAndBase <- function(df,
                                           x, 
                                           y,
                                           buffer = NULL, 
-                                          base = file.path("C:/ArcGIS/Data",
-                                            "BlankRaster/maine_30mc.tif")) { 
+                                          base = raster(file.path("C:/ArcGIS",
+                                            "Data/BlankRaster/maine_30mc.tif"))
+                                          ){ 
   suppressPackageStartupMessages(require(raster))
   df <- df
+  base <- base
   xy <- data.frame(x=df[,x], y=df[,y])  
   coordinates(xy) <- c("x", "y")  
-  base <- raster(base)
   proj4string(xy)  <- crs(base)  
   if (!is.null(buffer)) { 
     xy_area <- extend(extent(xy), .01)  # needs to have area
@@ -615,14 +617,16 @@ CreateRasterFromPointsAndBase <- function(df,
 
 ###  Creates a list of RasterLayers of distances to study nests (nests to create 
 ###   rasters for) and all nests (all conspecific nests in the area) 
-###  Usage: CreateRasterNestConDist(years, buffer, study_nests, all_nests)
+###  Usage: CreateRasterNestConDist(years, buffer, study_nests, all_nests, base)
 ###  Arguments: years = vector of years to calculate distances
 ###             buffer = distance in cell units to buffer around nests for  
 ###               calculating the distance to conspecifics. Default is 1000. 
 ###             study_nests = nests with "active_(year)", "eagle_id", "lat_utm", 
 ###               and "long_utm" columns
 ###             all_nests = nests with "active_(year)", "lat_utm", and 
-###               "long_utm"                
+###               "long_utm" 
+###             base = raster that is used to rasterize() the input data, 
+###               default is set to a RasterLayer specific to my BAEA project  
 ###  Returns: A list of Rasters with nest and conspecific distances for all 
 ###    cells within buffer distance of the study nests. List is structured as:
 ###    list[[year]][[nest_id]]
@@ -633,7 +637,9 @@ CreateRasterFromPointsAndBase <- function(df,
 CreateRasterNestConDist <- function(years,
                                     buffer = 1000,
                                     study_nests,
-                                    all_nests) {
+                                    all_nests,
+                                    base = raster(file.path("C:/ArcGIS/Data",
+                                      "BlankRaster/maine_30mc.tif"))) {
   years <- years
   nest_con_dist <- as.list(setNames(rep(NA,length(years)), as.numeric(years)), 
     years)
@@ -643,10 +649,10 @@ CreateRasterNestConDist <- function(years,
     study_nests_yr <- study_nests[!is.na(study_nests$eagle_id) & 
       study_nests[,active_year] == TRUE, ] 
     all_nests_yr <- all_nests[all_nests[,active_year] == TRUE,] 
-    study_nests_yr_30mc <- CreateRasterMCFromPoints(study_nests_yr, 
-      value="nest_id_num", long="nest_long_utm", lat="nest_lat_utm")
-    all_nests_yr_30mc <- CreateRasterMCFromPoints(all_nests_yr, 
-      value="nest_id_num", long="nest_long_utm", lat="nest_lat_utm")
+    study_nests_yr_30mc <- CreateRasterFromPointsAndBase(study_nests_yr, 
+      value="nest_id_num", x="nest_long_utm", y="nest_lat_utm", base)
+    all_nests_yr_30mc <- CreateRasterFromPointsAndBase (all_nests_yr, 
+      value="nest_id_num", x="nest_long_utm", y="nest_lat_utm", base)
     coordinates(study_nests_yr) <- c("nest_long_utm", "nest_lat_utm") 
     proj4string(study_nests_yr)  <- CRS("+proj=utm +zone=19 +datum=NAD83")
     coordinates(all_nests_yr) <- c("nest_long_utm", "nest_lat_utm") 
@@ -1054,7 +1060,7 @@ ExportKMLPolygon <- function (object,
     kmz_file <- sub(".kml", ".kmz", org_outfile, ignore.case =TRUE)
     command <- paste("7z a ","\"",zip_file,"\" ", "\"",outfile,"\" ", "\"", 
       temp_files_dir,"\"",  sep="")
-    system(command)  # runs as if from the fcommand prompt 
+    system(command)  # runs as if from the command prompt 
     file.rename(zip_file, kmz_file)
     do.call(file.remove,list(list.files(temp_files_dir, full.names=TRUE)))
     unlink(temp_files_dir, recursive=TRUE)
@@ -1123,8 +1129,8 @@ ExportKMLProbContour <- function(probs_raster = probs_raster,
 ###    RasterStack, or RasterBrick. Reliant on ExportKMLPolygon(). 
 ###  Usage: ExportKMLRaster(object, object_layer, outfile, kml_name,categorical,
 ###    metadata, metadata_layer, color_pal, color_alpha, color_range, color_min,
-###    color_max, color_levels, color_increment, outline, alt_mode, extrude, 
-###    labelscale, create_kmz) 
+###    color_max, color_levels, color_increment, legend_levels, legend_values, 
+###    log, signif_digits, outline, alt_mode, extrude, labelscale, create_kmz) 
 ###  Arguments: object = a 'RasterLayer' or 'SpatialPolygonsDataFrame' object
 ###             object_layer = layer in object that is used for display
 ###             outfile = location of output KML file. Extensions (.kml or 
@@ -1314,34 +1320,91 @@ ExportKMLRaster <- function (object = object,
 # ExportKMLRasterOverlay Function ----------------------------------------------
 
 ###  Export KML Raster function 
-###  Usage: ExportKMLRasterOverlay(x, outfile, outfolder) 
-###  Arguments: x = Raster* object
-###             color_pal = color palette, can be a color ramp (i.e. c("white",
-###               "red") or a specific palette ("SAGA_pal[[1]]")
-###             outfile = name of KML. default is to use name of raster 
-###             outfolder = folder location. default = "C:/ArcGIS/Data/R_Output"
+###  Usage: ExportKMLRasterOverlay(raster, color_pal, outfile, outfolder) 
+###  Arguments: raster = Raster* object
+###             color_pal = color palette, can be a color ramp (e.g., c("white",
+###               "red") or a specific palette (e.g., "SAGA_pal[[1]]")
+###             alpha = transparency level of the color palette for the .kml
+###             maxpixels = maximum number of pixels. If ncell(raster) > 
+###               maxpixels, sample is used to reduce the number of pixels
+###             blur = Integer (default=1). Higher values help avoid blurring of 
+###               isolated pixels (at the expense of a png file that is blur^2 
+##                times larger)
+###             colNA = color to use for the background (default is transparent)          
+###             outfile = name of KML, default is to use name of raster 
+###             outfolder = folder location, default is getwd()
+###             zip = logical, whether or not to convert .kml to .kmz
 ###  Returns: KML of a Raster
 ###  Notes: 
 ###  Blake Massey
-###  2014.07.04
+###  2015.02.08
 
-ExportKMLRasterOverlay<-function(x = x, 
-                                 color_pal = c("white","red"), 
+ExportKMLRasterOverlay<-function(raster = raster, 
+                                 color_pal = rev(terrain.colors(255)), 
+                                 alpha = 0.75,
+                                 zip = FALSE, 
+                                 method = "ngb",
+                                 overwrite = TRUE, 
+                                 maxpixels = 500000,
+                                 blur = 10,
+                                 colNA = "transparent",
                                  outfile = NULL, 
-                                 outfolder="C:/ArcGIS/Data/R_Output") {
+                                 outfolder= getwd()) {
   suppressPackageStartupMessages(require(raster))
-  nm <-deparse(substitute(x))
-  if(is.null(outfile)){
-  outfile <- paste(outfolder,"/",nm, ".kml", sep ="")
-  } else {
-  nm <- outfile
-  outfile <- paste(outfolder,"/",nm, ".kml", sep ="")  
+  if (nlayers(x) > 1) {
+    x <- x[[1]]
   }
-  x <- projectRaster(x, crs="+proj=longlat +datum=WGS84", method='ngb')
-  unique_x <- length(unique(round(getValues(x))))
-  cols <- colorRampPalette(color_pal)(unique_x)
-  KML(x, file=outfile, col=cols, colNA=NA, maxpixels=500000, blur=10, zip='', 
-    overwrite=TRUE)
+  if(!is.null(outfile)){
+    name <- outfile
+    outfile <- paste(outfolder, "/", name, ".kml", sep="")
+  } else {
+    name <- names(x)
+    if (name == "") {
+      name <-deparse(substitute(x))
+    }
+    outfile <- paste(outfolder, "/", name, ".kml", sep="")  
+  }
+  stopifnot(hasValues(x))
+  x <- projectRaster(x, crs="+proj=longlat +datum=WGS84", method=method)
+  unique_x <- length(unique(getValues(x)))
+  col <- colorRampPalette(color_pal, alpha=TRUE)(unique_x)
+  cols <- adjustcolor(col, alpha)
+  #  if (unique_x > 250) unique_x <- 250  
+  filename <- extension(outfile, ".kml")
+  x <- sampleRegular(x, size=maxpixels, asRaster=TRUE, useGDAL=TRUE)
+  imagefile <- filename
+  extension(imagefile) <- ".png"
+  kmlfile <- kmzfile <- filename
+  extension(kmlfile) <- ".kml"
+  if (file.exists(kmlfile)) {
+    if (overwrite) {
+      file.remove(kmlfile)
+    } else {
+      stop("kml file exists, use \"overwrite=TRUE\" to overwrite it")
+    }
+  }
+  png(filename=imagefile, width=max(480, blur * ncol(x)), height=max(480, 
+    blur * nrow(x)), bg="transparent", type="cairo-png")
+  if (!is.na(colNA)) {
+    par(mar = c(0, 0, 0, 0), bg = colNA)
+  } else {
+    par(mar = c(0, 0, 0, 0))
+  }
+  image(x, col=cols, axes=FALSE, useRaster=TRUE, maxpixels=maxpixels)
+  dev.off()
+  kml <- c("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", 
+    "<kml xmlns=\"http://www.opengis.net/kml/2.2\">", "<GroundOverlay>")
+  kmlname <- paste("<name>", name, "</name>", sep="")
+  icon <- paste("<Icon><href>", basename(imagefile),"</href><viewBoundScale>",
+    "0.75</viewBoundScale></Icon>", sep="")
+  e <- extent(x)
+  latlonbox <- c("\t<LatLonBox>", paste("\t\t<north>", e@ymax,"</north><south>", 
+    e@ymin, "</south><east>", e@xmax, "</east><west>", e@xmin, "</west>", 
+    sep = ""), "\t</LatLonBox>")
+  footer <- "</GroundOverlay></kml>"
+  kml <- c(kml, kmlname, icon, latlonbox, footer)
+  cat(paste(kml, sep = "", collapse = "\n"), file = kmlfile, sep = "")
+  if(zip) ZipKML(kmlfile, imagefile)
 }
 
 # ExportKMLWindProjects Function -----------------------------------------------
@@ -1750,6 +1813,7 @@ ExportRasterNestConDist <- function(nest_con_dist = nest_con_dist,
 
 # ExportShapefileFromPoints Function ###########################################
 
+
 ###  Exports shapefile of a dataframe's location data
 ###  Usage: ExportShapefileFromPoints(df, lat, long, name, folder, crs, 
 ###    overwrite)
@@ -1835,4 +1899,39 @@ PrintRasterNames <- function(raster){
   results <- paste(i,") ", names(raster[[i]]), sep="")
   cat(results, sep="\n")
   }
+}
+
+# ZipKML Function --------------------------------------------------------------
+
+###  Zip a kml file        
+###  Usage: ZipKML(kml, image, zip)
+###  Arguments: kml = filename for RasterStack or RasterBrick
+###             image = filename for image file  
+###  Returns:              
+###  Notes: Based on function from 'raster' package
+###  Blake Massey
+###  2015.02.08
+
+ZipKML <- function(kml, 
+                   image) {
+  suppressPackageStartupMessages(require(raster))
+	wd <- getwd()
+	on.exit(setwd(wd))
+ 	setwd(dirname(kml))
+	kml <- basename(kml)
+	kmz <- extension(kml, '.kmz')
+	image <- basename(image)
+	if (file.exists(kmz)) {
+		x <- file.remove(kmz)
+	}
+	kmzzip <- extension(kmz, '.zip')
+	cmd <- paste('7z', 'a', kmzzip, kml, image, collapse=" ")
+  sss <- try(system(cmd, intern=TRUE), silent=TRUE)
+  file.rename(kmzzip, kmz)
+  if (file.exists(kmz)) {
+		x <- file.remove(kml, image)
+		return(invisible(kmz))
+	} else {
+		return(invisible(kml))
+	}
 }

@@ -130,8 +130,7 @@ DensGenVonMises <- function(x,
 #    if (mu2>pi) mu2 <- mu2-(2*pi)
     d = (mu1-mu2)%%pi
     num <- exp(kappa1*cos(x-mu1) + kappa2*cos(2*(x-mu2)) )
-    den <- integrate(function(x){exp(kappa1*cos(x) + 
-      kappa2*cos(2*(x+d)))}, 
+    den <- integrate(function(x){exp(kappa1*cos(x) + kappa2*cos(2*(x+d)))}, 
       0,2*pi)$value
     dens <- num/den
     return(dens)
@@ -406,7 +405,7 @@ FitDeparture <- function(data=data,
 # FitGenVonMisesDensityToArray Function --------------------------------------
 
 ###  Fit generalized von Mises probability distribution to an array of x values
-###  Usage: FitGenVonMisesDensityToArray(df, var, pars)
+###  Usage: FitGenVonMisesDensityToArray(var, pars)
 ###  Arguments: var = variable fitted with generalized von Mises distribution
 ###             pars = parameters of gernalized von Mises distribution, created 
 ###               by FitGenVonMisesParsToData()
@@ -417,7 +416,7 @@ FitDeparture <- function(data=data,
 ###  2014.11.29
 
 FitGenVonMisesDensityToArray <- function(var,
-                                           pars) {
+                                         pars) {
   suppressPackageStartupMessages(require(stats))
   suppressPackageStartupMessages(require(circular))
   x <- seq(0, 2*pi, by=((2*pi)/720))
@@ -475,7 +474,7 @@ FitGenVonMisesParsToData <- function(df,
     pars[which(pars$by==i), "kappa1"] = coef(pars_i)[3]
     pars[which(pars$by==i), "kappa2"] = coef(pars_i)[4]
   }
-  names(pars)[names(pars) == 'by'] <- by
+  names(pars)[names(pars) == 'by'] <- names(pars)[1]
   return(pars)
 }
 
@@ -547,7 +546,7 @@ FitNormalParsToData <- function(df,
     pars[which(pars$by==i), "mean"] = as.numeric(pars_i$estimate[["mean"]])
     pars[which(pars$by==i), "sd"] = as.numeric(pars_i$estimate[["sd"]])
   }
-  names(pars)[names(pars) == 'by'] <- by
+  names(pars)[names(pars) == 'by'] <- names(pars)[1]
   return(pars)
 }
 
@@ -583,8 +582,8 @@ FitParetoDensityToArray <- function(df,
     time=length(pars[,1])), y=NA, stringsAsFactors=FALSE)
   bys <- unique(pars[,1])
   for (i in bys){
-  dens[which(dens$by == i), "y"] <- dgpd(x, location=pars[which(pars[,1] == i),
-    "location"], scale=pars[which(pars[,1]==i),"scale"], shape=
+  dens[which(dens$by == i), "y"] <- VGAM::dgpd(x, location=pars[which(pars[,1] 
+    == i), "location"], scale=pars[which(pars[,1]==i),"scale"], shape=
     pars[which(pars[,1] == i),"shape"])
   }
   names(dens)[names(dens) == 'by'] <- names(pars)[1]
@@ -594,12 +593,12 @@ FitParetoDensityToArray <- function(df,
 # FitParetoParsToData Function -------------------------------------------------
 
 ###  Fits a generalized Pareto distribution to data
-###  Usage: FitParetoParsToData(df, by, var, location, scale, shape)
+###  Usage: FitParetoParsToData(df, var, by, location, scale, shape)
 ###  Arguments: df = dataframe 
-###             by = column to subset data 
 ###             var = variable to fit Pareto distribution
+###             by = column to subset data 
 ###             location = starting value of location, default is 
-###               min(data$)-1
+###               min(df$var)-1
 ###             scale = starting value of scale, default is 1
 ###             shape = starting value of shape, default is 0
 ###  Returns: dataframe of "by" variable and parameters  
@@ -623,15 +622,16 @@ FitParetoParsToData <- function(df,
   if (is.null(location)) location <- min(df[,var],  na.rm = TRUE)-1  
   for (i in vars){
     data  <- subset(df, by == i, select = var, rm.na=TRUE)
-    if (is.null(location)) location <- min(data,  na.rm = TRUE)-1 
+    if (is.null(location)) location <- min(data, na.rm = TRUE)-1 
+    if (location < 0) location <- 0 
     pars_i <- mle2(NLLPareto, start=list(location=location, scale=scale,
-    shape=shape), data=list(data=data[,var]),  method="Nelder-Mead", 
-    skip.hessian=TRUE) #calculates Pareto parameters
+      shape=shape), data=list(data=data[,var]),  method="Nelder-Mead", 
+      skip.hessian=TRUE) #calculates Pareto parameters
     pars[which(pars$by==i),"location"]=as.numeric(coef(pars_i)[1])
     pars[which(pars$by==i),"scale"]=as.numeric(coef(pars_i)[2])
     pars[which(pars$by==i),"shape"]=as.numeric(coef(pars_i)[3])
   }
-  names(pars)[names(pars) == 'by'] <- by
+  names(pars)[names(pars) == 'by'] <- names(pars)[1]
   return(pars)
 }
 
@@ -696,7 +696,7 @@ FitWrappedCauchyParsToData <- function(df,
     pars[which(pars$by==i), "mu"] = as.numeric(pars_i[1])
     pars[which(pars$by==i), "rho"] = as.numeric(pars_i[2])
   }
-  names(pars)[names(pars) == 'by'] <- by
+  names(pars)[names(pars) == 'by'] <- names(pars)[1]
   return(pars)
 }
 
@@ -762,7 +762,7 @@ FitWrappedNormalParsToData <- function(df,
     pars[which(pars$by==i), "mu"] = as.numeric(pars_i$mu)
     pars[which(pars$by==i), "rho"] = as.numeric(pars_i$rho)
   }
-  names(pars)[names(pars) == 'by'] <- by
+  names(pars)[names(pars) == 'by'] <- names(pars)[1]
   return(pars)
 }
 
@@ -835,6 +835,25 @@ FitStepLength <- function(df = df,
   return(pars)
 }
 
+# LogisticByInflection Function ------------------------------------------------
+
+###  Returns the value of the logistic function using inflection and scale as
+###    input parameters
+###  Usage: LogisticByInflection(x, inflection, scale)
+###  Arguments: x = x value
+###             inflection = logistic function inflection point parameter
+###             scale = logistic function scale parameter
+###  Returns: y value 
+###  Notes: 
+###  Blake Massey
+###  2015.02.07
+
+LogisticByInflection <- function(x,
+                                 inflection,
+                                 scale) {
+  (1/(exp((-(x - inflection)) / scale) + 1))
+}
+
 # NLLBeta Function -------------------------------------------------------------
 
 ###  Beta Negative Log-Likelihood function
@@ -894,7 +913,7 @@ NLLPareto <- function(data,
                       scale,
                       shape) {  
   suppressPackageStartupMessages(require(VGAM))
-  -sum(dgpd(data, location=location, scale=scale, shape=shape, log=TRUE))
+  -sum(VGAM::dgpd(data, location=location, scale=scale, shape=shape, log=TRUE))
 }
 
 # NLLWeibull Function ----------------------------------------------------------
@@ -1059,31 +1078,26 @@ PlotHistAndGenVonMises <- function(df,
   source('C:/Work/R/Functions/pars.R')  
   ifelse(max(df[,var], na.rm=TRUE) <= 2*pi, radian <- TRUE, radian <- FALSE)
   if (is.null(x_lab)) x_lab <- var
-  if (is.null(bin_width) & radian == TRUE) bin_width = (2*pi)/24
-  if (radian == FALSE) {
-    ifelse (is.null(bin_width), bin_width <- 15*(pi/180), bin_width <- 
-      bin_width*(pi/180))
-  }
+  if (is.null(bin_width)) bin_width = (2*pi)/24
+#  if (radian == FALSE) {
+#    ifelse (is.null(bin_width), bin_width <- 15*(pi/180), bin_width <- 
+#      bin_width*(pi/180))
+#  }
   ifelse(is.null(by), keep <- var, keep <- c(var,by))
   df <- subset(df, select = keep)
   if(is.null(by)){  
     df$by <- "all"
     by <- "by"
-  }else{
+  } else {
      df$by <- df[,by]
   }
   df$var <- df[,var]    
-  ifelse(radian == TRUE, df$var <- df[,var], df$var <- df[,var]*(pi/180)) 
   by_colors <- suppressWarnings(CreateColorsByAny(by=by, df=df)) 
   breaks <- seq(0, (2*pi), by=((2*pi)/12))
   breaks <- breaks[-length(breaks)]
   minor_breaks <- seq(0, 2*pi, by=bin_width)
-  limits <- c(0, 2*pi)
-  if (radian == TRUE){ 
-    labels <- round(breaks, 2) 
-  } else {
-    labels <- round(breaks*(180/pi), 2)
-  }
+  limits <- c(0, 2*pi) 
+  labels <- round(breaks, 2)
   g <- ggplot(df, aes(x=var)) +
     scale_fill_manual(values=by_colors) +
     theme(legend.position="none") +
@@ -1101,7 +1115,7 @@ PlotHistAndGenVonMises <- function(df,
   if (fit_gen_von_mises == TRUE) {
     if (is.null(pars)) {
       pars <- FitGenVonMisesParsToData(df=df, var="var", by="by")
-      if(is.null(by)){
+    if(is.null(by)){
         pars$by <- "all"
       } else {
         pars[,length(pars)+1] <- pars$by
@@ -1133,7 +1147,7 @@ PlotHistAndGenVonMises <- function(df,
 
 ###  Plots a histogram of the data with an option to fit a Normal distribution  
 ###  Usage: PlotHistAndNormal((df, var, by, pars, xlim, bin_width, fit_normal,
-###           fit_color, hold_axes)
+###   fit_color, x_lab, title, hold_axes, label, lines)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit Normal distribution
 ###             by = optional, column name used to subset data, default = NULL 
@@ -1146,8 +1160,12 @@ PlotHistAndGenVonMises <- function(df,
 ###               distribution. Default is TRUE.
 ###             fit_color = color used for Normal fit line, quantiles, and 
 ###               parameter value text. Default is "orangered"
+###             x_lab = label for x-axis, default is variable name
+###             title = main title, default is NULL.
 ###             hold_axes = logical, hold axes even if parameter distribution
 ###               goes off of the screen. Default is TRUE
+###             label = logical, show quantile labels. Default is TRUE 
+###             lines = logical, show quantile lines. Default is TRUE
 ###  Returns: a plot with a normal distribution fitted for each 'by' factor          
 ###  Notes: 
 ###  Blake Massey
@@ -1162,7 +1180,10 @@ PlotHistAndNormal <- function(df,
                               fit_normal = TRUE, 
                               fit_color = "orangered",
                               x_lab = NULL, 
-                              hold_axes = TRUE) {
+                              title = NULL,
+                              hold_axes = TRUE,
+                              labels = TRUE,
+                              lines = TRUE) {
   suppressPackageStartupMessages(require(plyr))
   suppressPackageStartupMessages(require(ggplot2))
   source('C:/Work/R/Functions/baea.R')
@@ -1185,7 +1206,7 @@ PlotHistAndNormal <- function(df,
     theme(legend.position="none") +
     theme(text=element_text(size=20, colour="black")) +
     theme(axis.text=element_text(colour="black")) +
-    xlab(x_lab) + ylab("Density") + 
+    xlab(x_lab) + ylab("Density") + labs(title = title) +
     scale_x_continuous(limits=xlim) +
   geom_bar(aes(y = ..density.., fill=by), color="black", binwidth=bin_width)
   if (!is.null(by)) g <- g + facet_wrap( ~ by)
@@ -1224,29 +1245,39 @@ PlotHistAndNormal <- function(df,
   colnames(quantiles)[2:(length(probs)+1)] <- paste("q",probs, sep="")  
   quantiles$xmax <- xlim[1]+((xlim[2]-xlim[1])*.975)  # for geom_text 
   quantiles$ymax <- ymax  # for geom_text  
+  if (labels == TRUE) {
   g <- g + geom_text(data = quantiles, 
-      aes(x = c(q0.05+(abs(xmax)*0.05), q0.5+(abs(xmax)*.05), q0.95+(abs(xmax)*.05)),
+      aes(x = c(q0.05+(abs(xmax)*0.05), q0.5+(abs(xmax)*.05), 
+          q0.95+(abs(xmax)*.05)),
         y = c(ymax*.8, ymax*.8, ymax*.8),
         label = c(paste("5th:","\n", signif(q0.05, 3)), 
         paste("Median:","\n", signif(q0.5, 3)),
         paste("95th:","\n", signif(q0.95, 3)))), 
-      color = c("black", "gray20", "gray30"), hjust=0, vjust=1) +
-    geom_vline(data = quantiles, aes(xintercept = c(q0.05, q0.5, q0.95)),
+      color = c("black", "gray20", "gray30"), hjust=0, vjust=1)
+  }
+  if (lines == TRUE) {
+  g <- g + geom_vline(data = quantiles, aes(xintercept = c(q0.05, q0.5, q0.95)),
       color = c("black", "gray20", "gray30"), size = 1,
       linetype = c("dashed", "longdash", "dashed"))    
+  }
   ## Plot 'pars' quantile lines and parameter value text
   if(fit_normal == TRUE) {
     pars$xmax <- xlim[1]+((xlim[2]-xlim[1])*.975)  # for geom_text 
     pars$ymax <- ymax   # for geom_text 
+    if (labels == TRUE) {
     g <- g + geom_text(data = pars, aes(x = xmax, y = ymax*.95,
       label = paste("Mean: ", signif(mean,3),"\n",
       "SD: ", signif(sd,3)), sep=""), 
-      color = fit_color, hjust=1, vjust=1) +
-      geom_vline(data = pars, aes(xintercept = 
-        c(qnorm(.05, mean=mean, sd=sd), 
-          qnorm(.5, mean=mean, sd=sd),
-          qnorm(.95, mean=mean, sd=sd))), 
-        linetype=c("dashed", "longdash", "dashed"), colour=fit_color, size=1)
+      color = fit_color, hjust=1, vjust=1)
+    }
+    if (lines == TRUE) {
+    g <- g + geom_vline(data = pars, aes(xintercept = 
+      c(qnorm(.05, mean=mean, sd=sd), 
+        qnorm(.5, mean=mean, sd=sd),
+        qnorm(.95, mean=mean, sd=sd))), 
+      linetype=c("dashed", "longdash", "dashed"), colour=fit_color, size=1)
+    }
+    if (labels == TRUE) {
     g <- g + geom_text(data = pars,
       aes(x = c((qnorm(.05, mean=mean,sd=sd) + (abs(xmax)*0.05)),
         (qnorm(.5, mean=mean, sd=sd) + (abs(xmax)*0.05)),
@@ -1255,7 +1286,8 @@ PlotHistAndNormal <- function(df,
       label = c(paste("5th:","\n",signif(qnorm(.05, mean=mean, sd=sd),3)), 
       paste("Median:","\n",signif(qnorm(.5, mean=mean, sd=sd),3)),
       paste("95th:","\n",signif(qnorm(.95, mean=mean, sd=sd),3)))), 
-    color= fit_color,hjust=0, vjust=1)
+      color= fit_color,hjust=0, vjust=1)
+    }
   }
   g
 }
@@ -1264,7 +1296,7 @@ PlotHistAndNormal <- function(df,
 
 ###  Plots a histogram of the data with an option to fit a Pareto distribution  
 ###  Usage: PlotHistAndPareto(df, var, by, pars, xlim, bin_width, fit_pareto,
-###           fit_color, hold_axes)
+###           fit_color, hold_axes, labels, lines)
 ###  Arguments: df = dataframe of data
 ###             var = variable to fit Pareto distribution
 ###             by = optional, column name used to subset data, default = NULL 
@@ -1278,6 +1310,8 @@ PlotHistAndNormal <- function(df,
 ###               parameter value text. Default is "orangered"
 ###             hold_axes = logical, hold axes even if parameter distribution
 ###               goes off of the screen. Default is TRUE
+###             labels = logical, show quantile labels. Default is TRUE 
+###             lines = logical, show quantile lines. Default is TRUE
 ###  Returns: a plot of the data with            
 ###  Notes: 
 ###  Blake Massey
@@ -1291,8 +1325,13 @@ PlotHistAndPareto <- function(df,
                               bin_width = NULL,             
                               fit_pareto = TRUE, 
                               fit_color = "orangered",
-                              x_lab = NULL, 
-                              hold_axes = TRUE) {  
+                              x_lab = NULL,
+                              title = NULL, 
+                              hold_axes = TRUE,
+                              emp_labels = FALSE,
+                              emp_lines = FALSE,
+                              labels = TRUE,
+                              lines = TRUE) {  
   suppressPackageStartupMessages(require(ggplot2))
   source('C:/Work/R/Functions/gen.R')
   source('C:/Work/R/Functions/pars.R')  
@@ -1310,7 +1349,7 @@ PlotHistAndPareto <- function(df,
     theme(legend.position="none") +
     theme(text=element_text(size=20, colour="black")) +
     theme(axis.text=element_text(colour="black")) +
-    xlab(x_lab) + ylab("Density") + 
+    xlab(x_lab) + ylab("Density") + labs(title = title) +
     scale_x_continuous(limits=c(0,xlim)) +
   geom_bar(aes(y = ..density.., fill=by), color="black", binwidth=bin_width)
   if (!is.null(by)) g <- g + facet_wrap( ~ by)
@@ -1351,17 +1390,20 @@ PlotHistAndPareto <- function(df,
   colnames(quantiles)[2:(length(probs)+1)] <- paste("q",probs, sep="")  
   quantiles$xmax <- xmax  # for geom_text 
   quantiles$ymax <- ymax  # for geom_text  
+  if (emp_labels == TRUE) {
   g <- g + geom_text(data = quantiles, 
       aes(x = c(q0.5+(xmax*0.02), q0.75+(xmax*.02), q0.95+(xmax*.02)),
         y = c(ymax*.8, ymax*.6, ymax*.4),
         label = c(paste("Median:","\n",as.integer(q0.5)), 
         paste("75th:","\n",as.integer(q0.75)),
         paste("95th:","\n",as.integer(q0.95)))), 
-      color = c("black", "gray20", "gray30"), hjust=0, vjust=1) +
-    geom_vline(data = quantiles, aes(xintercept = c(q0.5, q0.75, q0.95)),
+      color = c("black", "gray20", "gray30"), hjust=0, vjust=1)
+  }
+  if (emp_lines == TRUE) {
+  g <- g + geom_vline(data = quantiles, aes(xintercept = c(q0.5, q0.75, q0.95)),
       color = c("black", "gray20", "gray30"), size = 1,
       linetype = c("longdash", "dashed", "dotted"))  
-    
+  }
   ## Plot 'pars' quantile lines and parameter value text
   if(fit_pareto == TRUE) {
   pars$xmax <- xmax  # for geom_text 
@@ -1370,24 +1412,29 @@ PlotHistAndPareto <- function(df,
     label = paste("Location: ", signif(location,3),"\n", 
     "Scale: ", signif(scale,3),"\n",
     "Shape: ", signif(shape,3)), sep=""), 
-    color = fit_color, hjust=1, vjust=1) +
-  geom_vline(data = pars, aes(xintercept = 
-    c(qgpd(.5, location=location, scale=scale, shape=shape), 
-      qgpd(.75, location=location, scale=scale, shape=shape),
-      qgpd(.95, location=location, scale=scale, shape=shape))), 
-    linetype=c("longdash", "dashed", "dotted"), colour=fit_color, size=1) +
-  geom_text(data = pars,
-    aes(x = c((qgpd(.5, location=location,scale=scale,shape=shape)+(xmax*0.02)),
-      (qgpd(.75, location=location, scale=scale, shape=shape)+(xmax*0.02)),
-      (qgpd(.95, location=location, scale=scale, shape=shape))+(xmax*0.02)), 
-       y = c(ymax*.9, ymax*.7, ymax*.5),
-    label = c(paste("Median:","\n",as.integer(qgpd(.5, location=location, 
+    color = fit_color, hjust=1, vjust=1)
+  if (lines == TRUE) {
+  g <- g + geom_vline(data = pars, aes(xintercept = 
+    c(VGAM::qgpd(.5, location=location, scale=scale, shape=shape), 
+      VGAM::qgpd(.75, location=location, scale=scale, shape=shape),
+      VGAM::qgpd(.95, location=location, scale=scale, shape=shape))), 
+    linetype=c("longdash", "dashed", "dotted"), colour=fit_color, size=1)
+  }
+  if (labels == TRUE) {
+  g <- g + geom_text(data = pars,
+    aes(x = c((VGAM::qgpd(.5, location=location,scale=scale,shape=shape) + 
+      (xmax*0.02)), (VGAM::qgpd(.75, location=location, scale=scale,
+      shape=shape) + (xmax*0.02)), (VGAM::qgpd(.95, location=location, 
+      scale=scale, shape=shape)) + (xmax*0.02)), y = c(ymax*.9, ymax*.7, 
+      ymax*.5),
+    label = c(paste("Median:","\n",as.integer(VGAM::qgpd(.5, location=location, 
       scale=scale, shape=shape))), 
-    paste("75th:","\n",as.integer(qgpd(.75, location=location, 
+    paste("75th:","\n",as.integer(VGAM::qgpd(.75, location=location, 
       scale=scale, shape=shape))),
-    paste("95th:","\n",as.integer(qgpd(.95, location=location, scale=scale, 
-      shape=shape))))), 
-  color= fit_color,hjust=0, vjust=1)
+    paste("95th:","\n",as.integer(VGAM::qgpd(.95, location=location, 
+      scale=scale, shape=shape))))), 
+    color= fit_color,hjust=0, vjust=1)
+  }
   }
   g
 }
@@ -1446,12 +1493,8 @@ PlotHistAndWrappedCauchy<- function(df,
   breaks <- seq(0, (2*pi), by=((2*pi)/12))
   breaks <- breaks[-length(breaks)]
   minor_breaks <- seq(0, 2*pi, by=bin_width)
-  limits <- c(0, 2*pi)
-  if (radian == TRUE){ 
-    labels <- round(breaks, 2) 
-  } else {
-    labels <- round(breaks*(180/pi), 2)
-  }
+  limits <- c(0, 2*pi) 
+  labels <- round(breaks, 2) 
   g <- ggplot(df, aes(x=var)) +
     scale_fill_manual(values=by_colors) +
     theme(legend.position="none") +
@@ -1596,28 +1639,32 @@ PlotHistAndWrappedNormal <- function(df,
   g
 }
 
-# PlotLogisticCDF Function -----------------------------------------------------
+# PlotLogisticPDF Function -----------------------------------------------------
 
-###  Plot Logistic Cumulative Probability Distribution Function
-###  Usage: PlotLogisticCDF(location, scale, max_x)
+###  Plot Logistic Probability Distribution Function
+###  Usage: PlotLogisticPDF(location, scale, range, col)
 ###  Arguments: location = location parameter
 ###             scale = scale parameter
-###             max_x = maximum value on x scale, default is 250
+###             range = two-number vector of x scale range, default is (0,50)
+###             col = color palette, e.g. "jet2.col(100)"
 ###  Returns: plot of probability distribution
 ###  Notes:
 ###  Blake Massey
 ###  2014.12.16
 
-PlotLogisticCDF <- function(location, 
+PlotLogisticPDF <- function(location, 
                             scale, 
-                            max_x){
+                            range = c(0,50),
+                            col = "darkgreen"){
   suppressPackageStartupMessages(require(ggplot2))
-  x <- seq(0, max_x, length=max_x)
+  ifelse (length(range(range)) <= 100, length_x <- 100, length <- length(range))  
+  x <- seq(range[1], range[2], length=length_x)
   y <- exp(location + scale*x)/(1 + exp(location + scale*x))
   df <- as.data.frame(cbind(x, y))
   main <- paste0("Logistic (location = ", location, ", scale = ", scale, ")")
   g <- ggplot(df, aes(x, y)) +
-    geom_line(colour="dark green", size=1.5) + 
+    geom_line(aes(color=y), size=1.5) +
+    scale_colour_gradientn(colours = col) +
     theme(legend.position="none") +
     theme(plot.title=element_text(size=22)) +
     theme(text=element_text(size=20, colour="black")) +
@@ -1737,6 +1784,51 @@ PlotParsBeta <- function(pars,
     theme(text=element_text(size=20, colour="black")) + 
     theme(axis.text=element_text(colour="black")) + labs(x="Daily Period", 
     y="Probability Density", title="Daily Behavior Probability Distributions") 
+}
+
+# PlotTwoLogisticPDF Function --------------------------------------------------
+
+###  Plot Logistic Probability Distribution Function
+###  Usage: PlotTwoLogisticPDF(location_1, scale_1, location_2, scale_2, 
+###    x_label,x_max)
+###  Arguments: location_1 = location parameter for distribution 1
+###             scale_1 = scale parameter for distribution 1
+###             location_2 = location parameter for distribution 2
+###             scale_2 = scale parameter for distribution 2
+###             x_label = label for x-axis, default if "X Value"
+###             x_max = maximum value on x scale, default is 1000
+###  Returns: plot of probability distribution
+###  Notes:
+###  Blake Massey
+###  2015.01.26
+
+PlotTwoLogisticCDF <- function(location_1, 
+                               scale_1,
+                               location_2,
+                               scale_2,
+                               x_label = "X Value",
+                               x_max = 1000) {
+  suppressPackageStartupMessages(require(ggplot2))
+  x <- seq(0, x_max, length=1000)
+  y <- exp(location_1 + scale_1*x)/(1 + exp(location_1 + scale_1*x))
+  y2 <- exp(location_2 + scale_2*x)/(1 + exp(location_2 + scale_2*x))
+  df <- as.data.frame(cbind(x, y, y2))
+  df$x_max <- x_max
+  g <- ggplot(df) +
+    geom_line(aes(x, y), colour="blue3", size=1.5) +     
+    geom_line(aes(x, y2), colour="red3", size=1.5) + 
+    theme(legend.position="none") +
+    theme(plot.title=element_text(size=22)) +
+    theme(text=element_text(size=20, colour="black")) +
+    theme(axis.text=element_text(colour="black")) +
+    labs(x=x_label, y='Probability Density') +
+    annotate("text", x=x_max*.05, y=.5, label=paste0("Location: ",
+      location_1,"\n", "Scale: ", scale_1), size=6, color="blue3", hjust=0, 
+      vjust=1) +   
+    annotate("text", x=x_max*.95, y=.5, label=paste0("Location: ",
+      location_2,"\n", "Scale: ", scale_2), size=6, color="red3", hjust=1, 
+      vjust=1)  
+  g
 }
 
 # PlotWeibullCDF Function ------------------------------------------------------

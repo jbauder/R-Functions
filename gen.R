@@ -40,7 +40,7 @@ ExtractRandomSample <- function(df = df,
   return(df)
 }
 
-# PlotColorPalette Function -------------------------------------------------
+# PlotColorPalette Function ----------------------------------------------------
 
 ###  Plots selected color palettes with indexes and names
 ###  Usage: PlotColorPalette(pal, select)

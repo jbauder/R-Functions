@@ -664,8 +664,9 @@ ExportKMLTelemetryBAEA <- function (df,
                                     point_b_pal = "Set1", 
                                     extrude = FALSE,
                                     path = TRUE,
-                                    path_color = NULL,
-                                    path_metadata = NULL,
+                                    path_color = "deploy_location",
+                                    path_metadata = file.path("C:/Work/R",
+                                      "Data/BAEA/BAEA_gps_data.csv"),
                                     path_pal = NULL,
                                     path_r_pal = NULL,
                                     path_b_pal = NULL,
@@ -738,6 +739,7 @@ ExtractMovements <- function(df,
                              by = "id",
                              min_step_length = 50,
                              max_step_time = 20){
+  suppressPackageStartupMessages(require(plyr))
   df <- df 
   movements <- ddply(df, by, function(df){
     movements <- df[which(df$step_length >= min_step_length & 

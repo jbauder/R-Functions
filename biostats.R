@@ -1,9 +1,12 @@
 
 all.subsets.gam <-
-function(y,x.smooth,x.parametric=NULL,family=binomial(link=logit),
-	maxp=5,select='all',delta=7,rank=10,...){
+function(y,x.smooth,x.parametric=NULL,
+  family=binomial(link=logit),maxp=5,select='all',delta=7,rank=10,...){
 
+owarn<-options("warn")
+on.exit(options(warn=owarn$warn))
 options(warn=-1)
+require(mgcv,MuMIn)
 
 #binary function copied from wle library
 binary<-function(x,dim){
@@ -97,6 +100,8 @@ for(i in 1:m){
 		model<-rbind(model,paste(x.names,collapse='+'))
 		id<-rbind(id,i)
 		AIC<-round(model.gam$aic,3)
+		t.AICc<-round(AICc(model.gam),3)
+		AICc<-rbind(AICc,t.AICc)
 		K<-model.gam$rank
 		AICc<-rbind(AICc,round(AIC+(2*K*(K+1)/(N-K-1)),3))
 		
@@ -143,177 +148,192 @@ varimp<-merge(N,AICc,by='Term')
 AIC.stats<-subset(AIC.stats,select=-id)
 
 #save results to list
-return(list(modelAIC=AIC.stats,variable.importance=varimp))
+return(list(model.AIC=AIC.stats,variable.importance=varimp))
 
-} #end function
-
+}
 all.subsets.glm <-
-function(y,x,force=NULL,family=binomial(link=logit),offset=NULL,weights=NULL,
-	quadratic.x=FALSE,quadratic.force=FALSE,maxp=5,select='AIC',sensitivity=.95,delta.AIC=7,
-	delta.FP=.1,delta.Kappa=.1,rank=10,varimp=FALSE,gof='logLik',coef.table=FALSE, paired.quadratic.x=FALSE,...){
+function(y,x1=NULL,x2=NULL,x2.linear=FALSE,x.force=NULL,
+  paired.logit=FALSE,family=binomial(link=logit),offset=NULL,weights=NULL,
+  maxp=5,select='AIC',sensitivity=.95,delta.AIC=7,delta.FP=.1,delta.Kappa=.1,
+  rank=10,varimp=FALSE,gof='logLik',coef.table=FALSE,model.ave=FALSE,...){
 
-owarn <- options("warn")
+owarn<-options("warn")
 on.exit(options(warn=owarn$warn))
 options(warn=-1)
 
-
+#check on valid model parameterization
+if(x2.linear==TRUE & is.null(x2)) stop('if x2.linear=TRUE, then x2 cannot be 
+  null')
+if(paired.logit==TRUE & !is.null(x2)) stop('quadratic terms not allowed in paired 
+  logistic regression, so x2 must be null')
+  
 ################################################################################
-#functions
+#internal functions
 ################################################################################
 
 #binary function (copied from wle library)
 binary<-function(x,dim){
     if(x==0){
-        pos<-1
-	} else {
-        pos<-floor(log(x,2))+1
-	}
+      pos<-1
+	    }
+    else{
+      pos<-floor(log(x,2))+1
+	    }
     if(!missing(dim)){
-        if(pos<=dim){
-           pos<-dim
-        } else {
-           warning("the value of `dim` is too small")
+      if(pos<=dim){
+        pos<-dim
         }
-    }
+      else{
+        warning("the value of `dim` is too small")
+        }
+      }
     bin<-rep(0,pos)
     dicotomy<-rep(FALSE,pos)
     for(i in pos:1){
-        bin[i]<-floor(x/2^(i-1))
-        dicotomy[i]<-bin[i]==1
-        x<-x-((2^(i-1))*bin[i])
-	}
-	return(dicotomy)
-} # end binary function
+      bin[i]<-floor(x/2^(i-1))
+      dicotomy[i]<-bin[i]==1
+      x<-x-((2^(i-1))*bin[i])
+    	}
+return(dicotomy)
+}
 
 #Kappa function
 cohen.kappa<-function(y){
-	N<-sum(y)
-	ccr<-sum(diag(y))/sum(y)
-	p<-apply(y,1,sum)/N
-	q<-apply(y,2,sum)/N
-	num<-ccr-sum(p*q)
-	den<-1-sum(p*q)
-	k<-num/den
-	k[k<0]<-0
-	return(k)		
+N<-sum(y)
+ccr<-sum(diag(y))/sum(y)
+p<-apply(y,1,sum)/N
+q<-apply(y,2,sum)/N
+num<-ccr-sum(p*q)
+den<-1-sum(p*q)
+k<-num/den
+k[k<0]<-0
+return(k)		
 }
 
 #Kappa optimization function
 kappa.opt<-function(threshold){
-	obs<-out[,1]>0
-	if(threshold==0){
-		pred<-out[,2]>=threshold
-	} else {
-		pred<-out[,2]>threshold
+obs<-out[,1]>0
+if(threshold==0){
+	pred<-out[,2]>=threshold
 	}
-	temp<-c(sum(pred&obs),sum(!pred&obs),sum(pred&!obs),sum(!pred&!obs))
-	temp<-as.table(matrix(temp,nrow=2))
-	cohen.kappa(temp)
+else {
+	pred<-out[,2]>threshold
+	}
+temp<-c(sum(pred&obs),sum(!pred&obs),sum(pred&!obs),sum(!pred&!obs))
+temp<-as.table(matrix(temp,nrow=2))
+cohen.kappa(temp)
 }
 	
 ################################################################################
 
-#add quadratic x terms and define the svars, the selection variable vector
-if(paired.quadratic.x){
-	# selection variables will not include quadratic terms
-	svars <- names(x) 
-}
-if(quadratic.x==TRUE || paired.quadratic.x){
-	nvars<-ncol(x)
-	for(i in 1:nvars){
-		temp<-temp<-x[,i]^2
-		x<-cbind(x,temp)
-		names(x)[nvars+i]<-paste(names(x[i]),'.sq',sep='')
-		}
-	}
-if(!paired.quadratic.x){
-	svars <- names(x) # selection variables will include quadratic
-}
-p <- length(svars)
+#add quadratic terms to x2 and define svars, the selection variable vector
+if(x2.linear==TRUE){ 
+  svars<-c(names(x1),names(x2)) #svar does not include quadratic terms
+  svars.sq<-paste(svars,'.sq',sep='') #all quadratic terms
+  svars.sq.x2<-paste(names(x2),'.sq',sep='') #x2 quadratic terms
+  }
 
-#add quadratic forced terms
-if(quadratic.force==TRUE){
-	nvars<-ncol(force)
-	for(i in 1:nvars){
-		temp<-temp<-force[,i]^2
-		force<-cbind(force,temp)
-		names(force)[nvars+i]<-paste(names(force[i]),'.sq',sep='')
-		}
-	q<-ncol(force)
-}
+if(!is.null(x2)){
+  nvars<-ncol(x2)
+  for(i in 1:nvars){
+    temp<-x2[,i]^2
+    x2<-cbind(x2,temp)
+    names(x2)[nvars+i]<-paste(names(x2[i]),'.sq',sep='')
+    }
+  }
 
-if(is.null(force)) q <- 0 else q <- ncol(force)
+if(x2.linear==FALSE){
+  svars<-c(names(x1),names(x2)) #svar includes quadratic terms
+  }
 
-# Calculate the final dimension of the storage objects
-ns <- 0 # number of subsets we will consider (if maxp == p this is equal to m)
-nc <- 0 # number of coefficients
+p<-length(svars)
 
+#define fvars, the selection variable vector for the forced terms
+fvars<-names(x.force)
+if(is.null(x.force)) q<-0 
+else q<-ncol(x.force)
 
-f <- ifelse(paired.quadratic.x, 2, 1)
-for(i in 1:min(maxp, p)){
-	a <- choose(p, i)
-	ns <- ns + a
-	nc <- nc + a * (i * f + 1 + q)
-}
+#calculate the final dimension of the storage objects
+ns<-0 #number of subsets we will consider (if maxp == p this is equal to m)
+nc<-0 #number of coefficients
+
+f<-ifelse(x2.linear,2,1)
+for(i in 1:min(maxp,p)){
+	a<-choose(p,i)
+	ns<-ns+a
+	nc<-nc+a*(i*f+1+q)
+  }
 
 #create parameters and pre-allocate storage objects
-m<-(2^p)-1  # number of subsets (disregarding maxp)
-N<-nrow(x)
+m<-(2^p)-1  #number of subsets (disregarding maxp)
+if(is.null(x1)) N<-nrow(x2) #number of observations
+else N<-nrow(x1)
 
-coefficients<- data.frame(character(nc), numeric(nc), numeric(nc), numeric(nc), numeric(nc), numeric(nc), stringsAsFactors=FALSE)
-names(coefficients) <- c("Term", "Estimate", "Std. Error", "z value", "Pr(>|z|)","id")
+coefficients<-data.frame(character(nc),numeric(nc),numeric(nc),numeric(nc),
+  numeric(nc),numeric(nc),stringsAsFactors=FALSE)
+names(coefficients)<-c("Term","Estimate","Std. Error","z value","Pr(>|z|)","id")
 
-model<- character(ns)
-id<- numeric(ns)
-AICc <-numeric(ns)
-D2 <-numeric(ns)
+model<-character(ns)
+id<-numeric(ns)
+AICc<-numeric(ns)
+D2<-numeric(ns)
 cutpoint<-numeric(ns)
-if(select=='commission') FP <- numeric(ns)
-if(select == "Kappa") Kappa<- numeric(ns)
-fvars <- names(force)  # forced variables  (including squared forced variables if any)
+if(select=='commission') FP<-numeric(ns)
+if(select=='Kappa') Kappa<-numeric(ns)
 
- # assemble all the data in one dataframe
- d <- if(is.null(force)) d <- cbind(data.frame(y=y), x) else
-   d <- cbind(data.frame(y=y), x, force) 
+#assemble all the data in one dataframe
+if(is.null(x1) & !is.null(x2)) x<-x2
+if(!is.null(x1) & is.null(x2)) x<-x1
+if(!is.null(x1) & !is.null(x2)) x<-cbind(x1,x2)
 
-svars.sq <- paste(svars, ".sq", sep="")
+if(is.null(x.force)) d<-cbind(data.frame(y=y),x) 
+else d<-cbind(data.frame(y=y),x,x.force) 
 
 #loop thru all subsets models
-oi <- 0 # output index
-cr <- 1 # the index of the first empty Coefficient table Row 
+oi<-0 # output index
+cr<-1 # the index of the first empty Coefficient table Row 
 for(i in 1:m){
 	bin<-binary(i,p)
 	if(sum(bin)> maxp) next
-	oi <- oi+1 
+	oi<-oi+1 
 	
-	# Create a model formula	
-	if(paired.quadratic.x){
-		terms <- c(svars[bin], svars.sq[bin], fvars)
-	} else {
-		terms <- c(svars[bin], fvars)
-	}
-	formula <- as.formula(paste("y~", paste(terms, collapse="+"), sep=""))
-	model.glm <- glm(formula, family=family,offset=offset,weights=weights,data=d)
-
+	#create a model formula	
+	if(x2.linear==TRUE){
+    temp<-svars.sq[bin]
+    terms.sq<-temp[svars.sq[bin] %in% svars.sq.x2]
+		terms<-c(svars[bin],terms.sq,fvars)
+	  }
+  else{
+	 	terms<-c(svars[bin],fvars)
+	  }
+	if(paired.logit==TRUE){
+	  formula<-as.formula(paste("y~",paste('-1+',paste(terms,collapse="+"),sep="")))
+	  }
+  else{
+    formula<-as.formula(paste("y~",paste(terms,collapse="+"),sep=""))
+    }
+  
+  #fit model
+  model.glm<-glm(formula,family=family,offset=offset,weights=weights,data=d)
 
 	#save coefficient stats 
 	if(varimp==TRUE | coef.table==TRUE){
 		temp<-as.data.frame(summary(model.glm)$coefficients)
 		Term<-row.names(temp)
-		temp<-cbind(Term,temp, stringsAsFactors=FALSE)
+		temp<-cbind(Term,temp,stringsAsFactors=FALSE)
 		temp$id<-i
-		coefficients[cr:(cr+nrow(temp)-1), ] <- temp[,]
-		cr <- cr + nrow(temp)
-	}
+		coefficients[cr:(cr+nrow(temp)-1), ]<-temp[,]
+		cr<-cr+nrow(temp)
+  	}
 
 	#save model aic stats (always)
-	model[oi]<- paste(terms,collapse='+')
-	id[oi] <- i
-	AIC <-round(model.glm$aic,3)
+	model[oi]<-paste(terms,collapse='+')
+	id[oi]<-i
+	AIC<-round(model.glm$aic,3)
 	K<-model.glm$rank
-	AICc[oi]<- round(AIC+(2*K*(K+1)/(N-K-1)),3)
+	AICc[oi]<-round(AIC+(2*K*(K+1)/(N-K-1)),3)
 	d2<-(model.glm$null.deviance-model.glm$deviance)/model.glm$null.deviance
-	D2[oi]<- round(d2,3)
+	D2[oi]<-round(d2,3)
 
 	#compute errors of commission
 	if(select=='commission'){
@@ -321,10 +341,10 @@ for(i in 1:m){
 		out<-as.data.frame(cbind(model.glm$y,model.glm$fitted.values))
 		names(out)<-c('observed','fitted')
 		cut<-quantile(out$fitted[out$observed==1],prob=1-sensitivity)
-		cutpoint[oi]< cut
-		FP[oi]<- round(nrow(out[out$fitted>=cut & out$observed==0,])/
+		cutpoint[oi]<-cut
+		FP[oi]<-round(nrow(out[out$fitted>=cut & out$observed==0,])/
 			nrow(out[out$observed==0,]),3)
-	}
+  	}
 
 	#compute Kappa
 	if(select=='Kappa'){
@@ -332,9 +352,9 @@ for(i in 1:m){
 		out<-as.data.frame(cbind(model.glm$y,model.glm$fitted.values))
 		names(out)<-c('observed','fitted')
 		temp<-optimize(kappa.opt,interval=c(min(out$fitted),max(out$fitted)),maximum=TRUE)
-		cutpoint[oi]<- temp$maximum
-		Kappa[oi] <-round(temp$objective,3)
-	}	
+		cutpoint[oi]<-temp$maximum
+		Kappa[oi]<-round(temp$objective,3)
+    }	
 } # end for loop
 
 #create model stats table
@@ -348,7 +368,8 @@ if(select=='commission'){
 	model.stats$rank<-seq(1,nrow(model.stats))
 	model.stats<-model.stats[model.stats$deltaFP<=delta.FP & model.stats$rank<=rank,]
 	model.stats<-model.stats[,c(1,2,3,4,7,8,5,6,9,10)]
-} else if(select=='Kappa'){
+  }
+else if(select=='Kappa'){
 	model.stats<-data.frame(id,model,D2,AICc,cutpoint,Kappa)
 	model.stats$deltaAICc<-round(model.stats$AICc-min(model.stats$AICc),3)
 	wgtAICc<-exp(-0.5*model.stats$deltaAICc)
@@ -358,7 +379,8 @@ if(select=='commission'){
 	model.stats$rank<-seq(1,nrow(model.stats))
 	model.stats<-model.stats[model.stats$deltaKappa<=delta.Kappa & model.stats$rank<=rank,]
 	model.stats<-model.stats[,c(1,2,3,4,7,8,5,6,9,10)]
-} else{
+  } 
+else{
 	model.stats<-data.frame(id,model,D2,AICc)
 	model.stats$deltaAICc<-model.stats$AICc-min(model.stats$AICc)
 	wgtAICc<-exp(-0.5*model.stats$deltaAICc)
@@ -366,103 +388,164 @@ if(select=='commission'){
 	model.stats<-model.stats[order(model.stats$AICc),]
 	model.stats$rank<-seq(1,nrow(model.stats))
 	model.stats<-model.stats[model.stats$deltaAICc<=delta.AIC & model.stats$rank<=rank,]
-}
+	rownames(model.stats) <- 1:nrow(model.stats)
+  }
 
 #create coefficients table
-if(varimp==TRUE | coef.table==TRUE){
-	sv <- coefficients$id %in% model.stats$id
+if(coef.table==TRUE){
+	sv<-coefficients$id %in% model.stats$id
 	coefficients<-coefficients[sv,]
 	coefficients<-coefficients[order(coefficients$Term),]
-	coefficients<-coefficients[coefficients$Term!='(Intercept)',]
+	#coefficients<-coefficients[coefficients$Term!='(Intercept)',]
+	coefficients<-coefficients[,c(6,1:5)]
+  rownames(coefficients)<-1:nrow(coefficients)
 	}
 
 #create variable importance table
 if(varimp==TRUE){
 	z<-merge(coefficients,model.stats,by='id')
+  z$Term<-gsub('.sq','',x=z$Term)
+  z<-z[!duplicated(z[,1:2]),]
 	N<-aggregate(rep(1, nrow(z)),list(z$Term),sum)
 	names(N)<-c('Term','N')
-	AICc<-aggregate(z$wgt,list(z$Term),sum)
+	AICc<-aggregate(z$wgtAICc,list(z$Term),sum)
 	names(AICc)<-c('Term','AICc')
-	varimport<-merge(N,AICc,by='Term')
-	if(p<=12){
+	varimport.AICc<-merge(N,AICc,by='Term')
+	if(p<=12 & paired.logit==FALSE){
 		require(hier.part)
-		HP<-round(hier.part(y,x,family=family,gof=gof)$I.perc/100,3)
+		if(!is.null(x.force)) x<-cbind(x,x.force) 
+		HP<-round(hier.part(y,x,family=family,gof=gof,
+      barplot=FALSE)$I.perc/100,3)
 		HP$Term<-row.names(HP)
 		names(HP)<-c('HP','Term')
-		varimport<-merge(varimport,HP,by='Term')
+		varimport.HP<-HP[,c(2,1)]
 		}
+  else{varimport.HP=NULL}
 	}
 
-#final clean up of tables
-model.stats<-subset(model.stats,select=-id)
-if (varimp==TRUE | coef.table==TRUE) coefficients<-subset(coefficients,select=-id)
-
-rownames(coefficients) <- 1:nrow(coefficients)
+#create model averaging table
+if(model.ave==TRUE){
+  require(MuMIn)
+  form.list<-list(nrow(model.stats))
+  
+  for(i in 1:nrow(model.stats)){
+    if(paired.logit==TRUE){
+      glm.form<-as.formula(paste('y~ -1 +',model.stats$model[i],sep=''))
+    }
+    else{
+      glm.form<-as.formula(paste('y~',model.stats$model[i],sep=''))
+    }
+    form.list[[i]]<-glm(glm.form,data=d,family='binomial')
+    }
+  
+  temp<-summary(model.avg(form.list))
+  subset.model.ave.results<-as.data.frame(cbind(temp$term.names,temp$avg.model))
+  names(subset.model.ave.results)[1]<-'Term'
+  row.names(subset.model.ave.results)<-NULL
+  full.model.ave.results<-as.data.frame(cbind(temp$term.names,temp$coef.shrinkage))
+  names(full.model.ave.results)<-c('Term','Estimate')
+  row.names(full.model.ave.results)<-NULL
+  }
 
 #save results to list
-if(coef.table==TRUE & varimp==TRUE)
+if(coef.table==TRUE & varimp==TRUE & model.ave==TRUE)
 	return(list(model.statistics=model.stats,coefficients=coefficients,
-	variable.importance=varimport))
+	variable.importance.AICc=varimport.AICc,variable.importance.HP=varimport.HP,
+  subset.averaged.coefficients=subset.model.ave.results,
+  full.averaged.coefficients=full.model.ave.results))
 	
-if(coef.table==TRUE & varimp==FALSE)
-	return(list(model.statistics=model.stats,coefficients=coefficients))
+if(coef.table==TRUE & varimp==FALSE & model.ave==TRUE)
+	return(list(model.statistics=model.stats,coefficients=coefficients,
+  subset.averaged.coefficients=subset.model.ave.results,
+  full.averaged.coefficients=full.model.ave.results))
 
-if(coef.table==FALSE & varimp==TRUE)
-	return(list(model.statistics=model.stats,variable.importance=varimport))
-	
-return(list(model.statistics=model.stats))
-	
-} #end function
+if(coef.table==FALSE & varimp==TRUE & model.ave==TRUE)
+	return(list(model.statistics=model.stats,
+  variable.importance.AICc=varimport.AICc,variable.importance.HP=varimport.HP,
+  subset.averaged.coefficients=subset.model.ave.results,
+  full.averaged.coefficients=full.model.ave.results))
 
+if(coef.table==FALSE & varimp==FALSE & model.ave==TRUE)
+  return(list(model.statistics=model.stats,
+  subset.averaged.coefficients=subset.model.ave.results,
+  full.averaged.coefficients=full.model.ave.results))
+
+if(coef.table==TRUE & varimp==TRUE & model.ave==FALSE)
+  return(list(model.statistics=model.stats,coefficients=coefficients,
+  variable.importance.AICc=varimport.AICc,variable.importance.HP=varimport.HP))
+
+if(coef.table==TRUE & varimp==FALSE & model.ave==FALSE)
+  return(list(model.statistics=model.stats,coefficients=coefficients))
+
+if(coef.table==FALSE & varimp==TRUE & model.ave==FALSE)
+  return(list(model.statistics=model.stats,
+  variable.importance.AICc=varimport.AICc,variable.importance.HP=varimport.HP))
+
+if(coef.table==FALSE & varimp==FALSE & model.ave==FALSE)
+  return(list(model.statistics=model.stats))
+	
+}
 beta.plot <-
 function(shape1=.5,shape2=.5){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(shape1)*length(shape2)
+k<-0
 for(i in shape1){
 	for(j in shape2){
+	  k<-k+1
 		curve(pbeta(x,shape1=i,shape2=j),0,1,
-			xlab='z',ylab='probability',main='Cumulative Probability')
+			xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 			mtext(paste('(a=',i,', b=',j,')',sep=''),side=3,col='red')
 		curve(dbeta(x,shape1=i,shape2=j),0,1,
-			xlab='z',ylab='probability density',main='Probability Density')
+			xlab='Z',ylab='Probability density',main='Probability Density')
 			mtext(paste('(a=',i,', b=',j,')',sep=''),side=3,col='red')
 		curve(qbeta(x,shape1=i,shape2=j),0,1,
-			xlab='P',ylab='quantiles(z)',main='Quantiles')
+			xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
 			mtext(paste('(a=',i,', b=',j,')',sep=''),side=3,col='red')
 		y<-rbeta(1000,shape1=i,shape2=j)
-		hist(y,xlab='z',ylab='frequency',main='Random Numbers')
+		hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
 			mtext(paste('(a=',i,', b=',j,')',sep=''),side=3,col='red')
-		readline('press return for next plot')
+	  if(k<n.plots) readline('press return for next plot')
 		}
 	}
 }
-
 binom.plot <-
 function(size=10,prob=.5){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(size)*length(prob)
+k<-0
 for(i in size){
 	n<-seq(0,i)
 	for(j in prob){
+	  k<-k+1
 		barplot(pbinom(n,size=i,prob=j),names=as.character(n),
-			xlab='# Successes (k)',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
+			xlab='# Successes (k)',ylab='Cumulative probability (quantile)',
+      main='Cumulative Probability')
 			mtext(paste('(size=',i,', prob=',j,')',sep=''),side=3,col='red')
 		barplot(dbinom(n,size=i,prob=j),names=as.character(n),
 			xlab='# Successes (k)',ylab='Probability',main='Probability Mass')
 			mtext(paste('(size=',i,', prob=',j,')',sep=''),side=3,col='red')
-		barplot(qbinom(seq(0,1,.1),size=i,prob=j),names=seq(0,1,.1),
-			xlab='Cumulative probability (quantile)',ylab='# Successes (k)',main='Quantiles')
+		barplot(qbinom(seq(0,1,.05),size=i,prob=j),names=seq(0,1,.05),
+			xlab='Cumulative probability (quantile)',ylab='# Successes (k)',
+      main='Quantiles')
 			mtext(paste('(size=',i,', prob=',j,')',sep=''),side=3,col='red')
 		y<-rbinom(1000,size=i,prob=j)
-		hist(y,xlab='# Successes (k)',ylab='Frequency',main='Random Numbers',col='gray')
+    y.table<-as.data.frame(table(y))
+    y.levels<-as.data.frame(n)
+    names(y.levels)<-'y'
+    y.table<-merge(y.levels,y.table,all.x=TRUE)
+    y.table$Freq[is.na(y.table$Freq)]<-0
+		barplot(y.table$Freq,names=seq(0,i),xlab='# Successes (k)',ylab='Frequency',
+      main='Random Observations',col='gray')
 			mtext(paste('(size=',i,', prob=',j,')',sep=''),side=3,col='red')
-		readline('press return for next plot')
+		if(k<n.plots) readline('press return for next plot')
 		}
 	}
 }
-
 box.plots <-
 function(x,var='',by='',save.plot=FALSE,
 	col='blue',las=1,...){
@@ -476,7 +559,7 @@ if(!var==''){
 else{y<-as.data.frame(x)}
 	
 if(by==''){ #box-and-whisker w/o groups
-	par(mfrow=c(1,1),mar=c(5,5,4,2)) #graphics settings
+	par(mar=c(5,5,4,2)) #graphics settings
 	for(i in 1:ncol(y)){ #loop thru variables
 		boxplot(y[i],ylab=names(y[i]),col=col,las=las,
 		main=paste('Box-and-Whisker Plot of',names(y[i]),sep=' '),...)
@@ -490,7 +573,7 @@ if(by==''){ #box-and-whisker w/o groups
 else{ #box-and-whisker w/ groups
 	n<-by.names(x,by) #create by variable
 	y<-cbind(n,y) #bind with selected variables
-	par(mfrow=c(1,1),mar=c(5,5,4,2)) #graphics settings
+	par(mar=c(5,5,4,2)) #graphics settings
 	for(i in 3:ncol(y)){ #loop thru variables
 		boxplot(y[[i]]~y[[2]],col=col,las=las,
 		ylab=names(y[i]),main=paste('Box-and-Whisker Plot of',names(y[i]),sep=' '),...)
@@ -501,8 +584,7 @@ else{ #box-and-whisker w/ groups
 		} #end loop thru variables
 	} #end bw w/groups
 par(oldpar)
-} #end function
-
+}
 by.names <-
 function(infile,by=names(infile)){
 
@@ -524,36 +606,37 @@ z <- z[,c('..id','..key')]
 names(z) <- c('id',t)
 return(z)
 }
-
 chisq.plot <-
 function(df=1,ncp=0,xlim=c(0,3)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(df)
+k<-0
 for(i in df){
+  k<-k+1
 	curve(pchisq(x,df=i,ncp=ncp),xlim[1],xlim[2],
-		xlab='z',ylab='probability',main='Cumulative Probability')
+		xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
 	curve(dchisq(x,df=i,ncp=ncp),xlim[1],xlim[2],
-		xlab='z',ylab='probability density',main='Probability Density')
+		xlab='Z',ylab='Probability density',main='Probability Density')
 		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
 	curve(qchisq(x,df=i,ncp=ncp),0,1,
-		xlab='P',ylab='quantiles(z)',main='Quantiles')
+		xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
 		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
 	y<-rchisq(1000,df=i,ncp=ncp)
-	hist(y,xlab='z',ylab='frequency',main='Random Numbers')
+	hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
 		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
-	readline('press return for next plot')
+	if(k<n.plots) readline('press return for next plot')
 	}
 }
-
 ci.lines <-
 function(model){
-xm<-mean(model[[12]][2])
-n<-length(model[[12]][[2]])
-ssx<-sum(model[[12]][2]^2)-sum(model[[12]][2])^2/n
+xm<-mean(model[[12]][,2])
+n<-length(model[[12]][,2])
+ssx<-sum(model[[12]][,2]^2)-sum(model[[12]][,2])^2/n
 s.t<-qt(0.975,(n-2))
-xv<-seq(min(model[[12]][2]),max(model[[12]][2]),(max(model[[12]][2])-min(model[[12]][2]))/100)
+xv<-seq(min(model[[12]][,2]),max(model[[12]][,2]),(max(model[[12]][,2])-min(model[[12]][,2]))/100)
 yv<-coef(model)[1]+coef(model)[2]*xv
 se<-sqrt(summary(model)[[6]]^2*(1/n+(xv-xm)^2/ssx))
 ci<-s.t*se
@@ -562,7 +645,6 @@ lyv<-yv-ci
 lines(xv,uyv,lty=2)
 lines(xv,lyv,lty=2)
 }
-
 class.monte <-
 function(y,grouping='',prop=.5,type='qda',perm=1000,prior='',...){
 
@@ -619,75 +701,57 @@ cat('Correct Classification Rate:\n')
 
 return(z2)	
 }
-
 clus.composite <-
 function(x,grp){
-
-groups<-as.factor(grp)
-groups<-levels(groups)
-
-#compute mean by cluster
-x.by<-by(x,grp,mean)
-	
-#create composite clusters
-z<-matrix(0,length(x),length(groups)) #create blank matrix
-for(i in 1:length(groups)){
-	z[,i]<-x.by[[i]]
-	}
-z<-as.data.frame(z)
-rownames(z)<-colnames(x)
-colnames(z)<-groups
-z<-t(z)
-return(z)
+  
+  grp<-as.factor(grp)
+  groups<-levels(grp)
+  
+  #compute mean by cluster
+  z<-aggregate(x,list(grp),mean)
+  z<-z[,-1]  
+  
+  return(z)
 }
-
 clus.stats <-
-function(x,grp){
-
-cv<<-function(x,na.rm) sd(x,na.rm=TRUE)/mean(x,na.rm=TRUE)*100 
-x<-as.data.frame(x)
-groups<-as.factor(grp)
-groups<-levels(groups)
-
-#compute kruskal-wallis rank sum test p-value
-p.value<-rep(0,length(x))
-for(i in 1:length(x)){
-	p<-kruskal.test(x[,i],grp)
-	p.value[i]<-p$p.value
-	}
-p.value<-round(p.value,3)
-
-#compute number of obs. per cluster
-cl.nobs<-rep(0,length(groups))
-for(i in 1:length(groups)){
-	cl.nobs[i]<-sum(grp==i)
-	}
-
-#compute stats by cluster
-x.mean<-by(x,grp,mean)
-x.cv<-by(x,grp,cv)
-
-#create summary table
-cl.mean<-matrix(0,length(x),length(groups)) #create blank matrix
-cl.cv<-matrix(0,length(x),length(groups)) #create blank matrix
-for(i in 1:length(groups)){
-	cl.mean[,i]<-round(x.mean[[i]],3)
-	cl.cv[,i]<-round(x.cv[[i]],0)
-	}
-cl.mean<-as.data.frame(cl.mean)
-rownames(cl.mean)<-colnames(x)
-colnames(cl.mean)<-groups
-cl.mean<-cbind(cl.mean,p.value)
-
-cl.cv<-as.data.frame(cl.cv)
-rownames(cl.cv)<-colnames(x)
-colnames(cl.cv)<-groups
-
-z<-list(cl.nobs,cl.mean,cl.cv)
-names(z)<-c('Cluster.nobs','Cluster.mean','Cluster.cv')
-return(z)
+function(x,grp,digits=3){
+  
+  cv<<-function(x,na.rm) sd(x,na.rm=TRUE)/mean(x,na.rm=TRUE)*100 
+  x<-as.data.frame(x)
+  grp<-as.factor(grp)
+  groups<-levels(grp)
+  
+  #compute number of obs. per cluster
+  cl.nobs<-as.numeric(table(grp))
+  
+  #compute means by cluster
+  cl.mean<-aggregate(x,by=list(grp),mean)
+  cl.mean<-cl.mean[,-1]
+  cl.mean<-round(cl.mean,digits=digits)
+  cl.mean<-as.data.frame(t(cl.mean))
+  names(cl.mean)<-groups
+  
+  #compute cv by cluster
+  cl.cv<-aggregate(x,by=list(grp),cv)
+  cl.cv<-cl.cv[,-1]
+  cl.cv<-round(cl.cv,digits=digits)
+  cl.cv<-as.data.frame(t(cl.cv))
+  names(cl.cv)<-groups
+  
+  #compute kruskal-wallis rank sum test p-value
+  p.value<-rep(0,length(x))
+  for(i in 1:length(x)){
+    p<-kruskal.test(x[,i],grp)
+    p.value[i]<-p$p.value
+  }
+  p.value<-round(p.value,3)
+  x.mean<-cbind(cl.mean,p.value)
+  
+  #create list object
+  z<-list(cl.nobs,cl.mean,cl.cv)
+  names(z)<-c('Cluster.nobs','Cluster.mean','Cluster.cv')
+  return(z)
 }
-
 cohen.kappa <-
 function(y){
 
@@ -702,7 +766,6 @@ kappa<-num/den
 kappa[kappa<0]<-0
 return(kappa)		
 }
-
 col.summary <-
 function(x,var=NULL,by=NULL,outfile=NULL,...){
 
@@ -771,8 +834,7 @@ else{
 	} #end summary table w/ groups
 
 return(z)
-} #end function
-
+}
 commission.mc <-
 function(fit,test=FALSE,reps=1000,sensitivity=.95,plot=TRUE,...){
 
@@ -797,7 +859,7 @@ FP<-function(fit,sensitivity=.95){
 ##################################################################################
 
 #compute observed FP and cutpoint
-temp<-FP(fit)
+temp<-FP(fit,sensitivity)
 FP.obs<-temp$FP
 cutpoint<-temp$cutpoint
 
@@ -846,7 +908,317 @@ z<-as.data.frame(rbind('Cutpoint'=cutpoint,'Observed commission rate'=round(FP.o
 names(z)=''
 return(z)
 }
+concordance <-
+function(use.data,avail.data,formula,method='glm',
+  paired=FALSE,use.strata=NULL,avail.strata=NULL,v=10,bins=NULL,
+  obex.plot=TRUE,cc.plot=TRUE,...){
 
+#add method for split-sample validation
+
+#check on library dependencies
+require(epiR) 
+if(method=='lmer' | method=='glmer') require(lme4)
+
+#create n.vars object
+if(method=='glm') n.vars<-length(attr(terms(formula),"term.labels"))
+else if(method=='lmer' | method=='glmer') n.vars<-length(attr(terms(formula),"term.labels"))-1
+
+##################################################################
+cc.bins<-function(bins){
+  
+  #create storage objects
+  bin.number<-as.data.frame(seq(1,bins))
+  names(bin.number)<-'bin.id'
+  bin.mids<-seq(1/(bins*2),1-(1/(bins*2)),by=1/(bins))
+  bin.ranges<-seq(0,1,by=1/bins)
+  
+  #tally validation points by bin
+  bin.id<-cut(valid.out,breaks=bin.ranges,labels=FALSE)    
+  temp<-as.data.frame(table(bin.id))
+  temp$bin.id<-as.numeric(as.character(temp$bin.id))
+  temp<-merge(temp,bin.number,all=TRUE)
+  temp$Freq[is.na(temp$Freq)]<-0
+  N.obs<-temp$Freq
+  P.obs<-N.obs/sum(N.obs)
+  
+  #tally available points by bin
+  bin.id<-cut(avail.out,breaks=bin.ranges,labels=FALSE)    
+  temp<-as.data.frame(table(bin.id))
+  temp$bin.id<-as.numeric(as.character(temp$bin.id))
+  temp<-merge(temp,bin.number,all=TRUE)
+  temp$Freq[is.na(temp$Freq)]<-0
+  N.avail<-temp$Freq
+  
+  #compute expected utilization and counts by bin
+  denom<-sum(bin.mids*N.avail)
+  P.exp<-(bin.mids*N.avail)/denom
+  N.exp<-P.exp*sum(N.obs)
+  
+  #compute coefficient of concordance
+  #cc<-epi.ccc(N.exp,N.obs,ci="z-transform",conf.level=0.95)$rho.c
+  cc<-epi.ccc(P.exp,P.obs,ci="z-transform",conf.level=0.95)$rho.c
+
+  #create list object
+  z<-list(v,bins,bin.mids,N.obs,P.obs,N.avail,N.exp,P.exp,cc)
+  names(z)<-c('v-folds','number of bins','bin midpoint probabilities',
+    'observed counts','observed proportions','available counts',
+    'expected counts','expected proportions','coefficient of concordance')
+  return(z) 
+}
+
+##################################################################
+
+#for paired logistic regression
+if(paired==TRUE){
+
+  ##create indictor variable for v-fold cross-validation
+  #for random v-folds
+  if(is.null(use.strata)){
+
+    if(v>1){
+      
+      #shuffle use data
+      use.data<-use.data[sample(1:nrow(use.data),replace=FALSE),]
+    
+      #create subset indicator
+      use.data$v<-cut(1:nrow(use.data),breaks=v,labels=FALSE)
+      }
+    
+    else use.data$v<-1
+    }
+
+  #for designated v-strata
+  else{
+
+    #for use strata only
+    if(is.null(avail.strata)){
+      use.data$v<-as.numeric(as.factor(use.strata))
+      v<-length(unique(use.strata))
+      }
+
+    #for both use and avail strata
+    else{
+      v.use<-unique(use.strata)
+      v.avail<-unique(avail.strata)
+      if(!all(v.use %in% v.avail)) stop('use and available must have the same strata')
+      if(!all(v.avail %in% v.use)) stop('use and available must have the same strata')
+      v<-length(unique(use.strata))
+      use.data$v<-as.numeric(as.factor(use.strata))
+      avail.data$v<-as.numeric(as.factor(avail.strata))
+      }
+    }
+  
+  #create storage objects
+  coefs<-as.data.frame(matrix(NA,nrow=v,ncol=n.vars))
+  se.coefs<-as.data.frame(matrix(NA,nrow=v,ncol=n.vars))
+  valid.out<-NULL
+  avail.out<-NULL
+  
+  #conduct v-fold cross-validation
+  for(i in 1:v){ 
+    
+    #create training data subset
+    if(v>1) train.use<-use.data[use.data$v!=i,]    
+    else train.use<-use.data
+    
+    #fit model to training data subset
+    if(method=='glm') fit<-glm(formula,data=train.use,family='binomial')  
+    else if(method=='lmer' | method=='glmer') fit<-glmer(formula,data=train.use,family='binomial')
+    
+    #save coefficients and standard errors
+    if(method=='glm'){
+      coefs[i,]<-coef(fit)
+      names(coefs)<-names(coef(fit))
+      Vcov<-vcov(fit,useScale=F)
+      se.coefs[i,]<-sqrt(diag(Vcov))
+      names(se.coefs)<-names(coef(fit))
+    }
+    else if(method=='lmer' | method=='glmer'){
+      coefs[i,]<-fixef(fit)
+      names(coefs)<-names(fixef(fit))
+      Vcov<-vcov(fit,useScale=F)
+      se.coefs[i,]<-sqrt(diag(Vcov))
+      names(se.coefs)<-names(fixef(fit))
+      }
+    
+    #create validation use dataset
+    if(v>1) valid.use<-use.data[use.data$v==i,]
+    else valid.use<-use.data
+    
+    #predict response for validation use points
+    mm<-model.matrix(terms(fit),valid.use)
+    if(method=='glm') newdata=mm %*% coef(fit)
+    else if(method=='lmer' | method=='glmer') newdata=mm %*% fixef(fit)
+    valid.out<-c(valid.out,plogis(newdata))
+    
+    #create validation available dataset
+    if(!is.null(avail.strata)) valid.avail<-avail.data[avail.data$v==i,]  
+    else valid.avail<-avail.data
+    
+    #predict response for available points
+    mm<-model.matrix(terms(fit),valid.avail)
+    if(method=='glm') newdata=mm %*% coef(fit)
+    else if(method=='lmer' | method=='glmer') newdata=mm %*% fixef(fit)
+    avail.out<-c(avail.out,plogis(newdata))
+    }
+  }
+  
+#for unpaired logistic regression
+else{
+
+  ##create indictor variable for v-fold cross-validation
+  #for random v-folds
+  if(is.null(use.strata)){
+    
+    if(v>1){
+      
+      #shuffle data
+      use.data<-use.data[sample(1:nrow(use.data),replace=FALSE),]
+      avail.data<-avail.data[sample(1:nrow(avail.data),replace=FALSE),]
+      
+      #create subset indicator
+      use.data$v<-cut(1:nrow(use.data),breaks=v,labels=FALSE)
+      avail.data$v<-cut(1:nrow(avail.data),breaks=v,labels=FALSE)
+      }
+    
+    else{
+      use.data$v<-1
+      avail.data$v<-1
+      }
+    }
+  
+  #for designated v-strata
+  else{
+    
+    if(is.null(avail.strata)) stop('must provide avail.strata for unpaired design')
+    v.use<-unique(use.strata)
+    v.avail<-unique(avail.strata)
+    if(!all(v.use %in% v.avail)) stop('use and available must have the same strata')
+    if(!all(v.avail %in% v.use)) stop('use and available must have the same strata')
+    v<-length(unique(use.strata))
+    use.data$v<-as.numeric(as.factor(use.strata))
+    avail.data$v<-as.numeric(as.factor(avail.strata))
+    }
+  
+  #create storage objects
+  coefs<-as.data.frame(matrix(NA,nrow=v,ncol=n.vars+1))
+  se.coefs<-as.data.frame(matrix(NA,nrow=v,ncol=n.vars+1))
+  valid.out<-NULL
+  avail.out<-NULL
+
+  #conduct v-fold cross-validation
+  for(i in 1:v){ 
+    
+    #create training datasets
+    if(v>1){
+      train.use<-use.data[use.data$v!=i,]
+      train.avail<-avail.data[avail.data$v!=i,]
+      train<-rbind(train.use,train.avail)
+      }
+    else{
+      train.use<-use.data
+      train.avail<-avail.data
+      train<-rbind(train.use,train.avail)
+      }
+    
+    #fit model to training data subset
+    if(method=='glm') fit<-glm(formula,data=train,family='binomial')  
+    else if(method=='lmer' | method=='glmer') fit<-glmer(formula,data=train,family='binomial')
+    
+    #save coefficients and standard errors
+    if(method=='glm'){
+      coefs[i,]<-coef(fit)
+      names(coefs)<-names(coef(fit))
+      Vcov<-vcov(fit,useScale=F)
+      se.coefs[i,]<-sqrt(diag(Vcov))
+      names(se.coefs)<-names(coef(fit))
+      }
+    else if(method=='lmer' | method=='glmer'){
+      coefs[i,]<-fixef(fit)
+      names(coefs)<-names(fixef(fit))
+      Vcov<-vcov(fit,useScale=F)
+      se.coefs[i,]<-sqrt(diag(Vcov))
+      names(se.coefs)<-names(fixef(fit))
+      }
+
+    #create validation use dataset
+    if(v>1) valid.use<-use.data[use.data$v==i,]
+    else valid.use<-use.data
+    
+    #predict response for validation use points
+    mm<-model.matrix(terms(fit),valid.use)
+    if(method=='glm') newdata=mm %*% coef(fit)
+    else if(method=='lmer' | method=='glmer') newdata=mm %*% fixef(fit)
+    valid.out<-c(valid.out,plogis(newdata))
+
+    #create validation available dataset
+    if(v>1) valid.avail<-avail.data[avail.data$v==i,]  
+    else valid.avail<-avail.data
+    
+    #predict response for available points
+    mm<-model.matrix(terms(fit),valid.avail)
+    if(method=='glm') newdata=mm %*% coef(fit)
+    else if(method=='lmer' | method=='glmer') newdata=mm %*% fixef(fit)
+    avail.out<-c(avail.out,plogis(newdata))
+    }
+  }  
+
+#brute force optimization of bin number
+if(is.null(bins)){
+  
+  #create objects
+  bin.seq<-seq(5,20)
+  cc.out<-matrix(NA,nrow=length(bin.seq),ncol=3)
+  cc.results<-vector('list',length=length(bin.seq))
+
+  #loop over bins
+  for(i in 1:length(bin.seq)){
+    cc.results[[i]]<-cc.bins(bins=bin.seq[i])
+    cc.out[i,]<-as.numeric(cc.results[[i]][[9]])
+    }
+
+  #find bin number for max cc
+  cc.out<-as.data.frame(cbind(bin.seq,cc.out))
+  names(cc.out)<-c('bins','est','lower','upper')
+  
+  #create output
+  z<-cc.results[cc.out$est==max(cc.out$est)]
+  z<-z[[1]]
+  bins<-z[[2]]
+  
+  #optional cc plot
+  if(cc.plot){
+    matplot(cc.out$bins,cc.out[,-1],typ='l',lty=c(1,2,2),col=c(1,1,1),
+      xlab='Number of Bins',ylab='Coefficient of Concordance',...)
+    points(cc.out$bins[cc.out$est==max(cc.out$est)],
+      cc.out$est[cc.out$est==max(cc.out$est)],pch=19,col='red')
+    readline('Press return for next plot')
+    }
+  }
+
+#user specified bin number
+else{
+  z<-cc.bins(bins=bins)  
+  }
+
+#plot observed vs expected proportions
+if(obex.plot){
+  P.exp<-as.numeric(z[[8]])
+  P.obs<-as.numeric(z[[5]])
+  plot(P.exp,P.obs,pch=19,
+    xlab='Expected Proportion',ylab='Observed Proportion',...)
+  abline(0,1,lty=2,lwd=2)
+  text(mean(P.exp),max(P.obs),
+    paste("Concord. coef. = ",round(z[[9]][1],2),' (',round(z[[9]][2],2),
+      ' - ',round(z[[9]][3],2),'); ',
+      v,'-fold; ',bins,' bins',sep=''))
+  }
+
+#create final list object
+zz<-list(coefficients=coefs,standard.errors=se.coefs,coefficient.concordance=z)
+
+return(zz)
+}
 contrast.matrix <-
 function(grp){
 
@@ -862,7 +1234,6 @@ grp.mat[matched(irow,icol,grp)]<-0
 z<-as.dist(grp.mat)
 return(z)
 }
-
 cov.test <-
 function(x,groups,var='',method='bartlett',...){
 
@@ -898,7 +1269,6 @@ else if(method=='fligner'){
 
 return(z)
 }
-
 data.dist <-
 function(x,method,var='',cor.method='pearson',abs=FALSE,
 	outfile='',binary=FALSE,diag=FALSE,upper=FALSE,na.rm=TRUE,...){
@@ -943,8 +1313,7 @@ else { #compute all other distance methods
 		} #end save outfile
 	} #end all other distance methods
 return(z)
-} #end function
-
+}
 data.stand <-
 function(x,method,var='',margin='column',
 	outfile='',plot=TRUE,save.plot=FALSE,na.rm=TRUE,
@@ -1057,8 +1426,7 @@ if(plot==TRUE){
 	par(old.par)
 	}
 return(z)
-} #end function
-
+}
 data.trans <-
 function(x,method,var='',exp=1,outfile='',
 	plot=TRUE,save.plot=FALSE,col.hist='blue',col.line='black',
@@ -1180,8 +1548,7 @@ if(plot==TRUE){
 	}
 
 return(z)
-} #end function	
-
+}
 dbeta.plot <-
 function(shape1=1,shape2=1,ylim=c(0,5),...){
 old.par<-par(no.readonly=TRUE)
@@ -1202,7 +1569,6 @@ for(i in shape1){
 	}
 legend(x='top',inset=c(.01,.01),legend=legend,col=m,lty=seq(1,k),cex=1.5,...)
 }
-
 dbinom.plot <-
 function(size=10,prob=.5,col=NULL,...){
 legend<-NULL
@@ -1222,7 +1588,6 @@ barplot(t(out),beside=TRUE,names=as.character(n),col=col.bar,
 abline(h=0,col='gray')
 legend(x='topright',inset=c(.01,.01),legend=legend,fill=col.bar,cex=1,bty='n')
 }
-
 dchisq.plot <-
 function(df=1,ncp=0,xlim=c(0,10),ylim=c(0,1),...){
 old.par<-par(no.readonly=TRUE)
@@ -1239,7 +1604,6 @@ for(i in df){
 	}
 legend(x='topright',inset=c(.01,.01),legend=legend,lty=seq(1,k),cex=1.5,...)
 }
-
 dexp.plot <-
 function(rate=1,xlim=c(0,15),ylim=c(0,1),xlab='z',...){
 old.par<-par(no.readonly=TRUE)
@@ -1256,7 +1620,6 @@ for(i in rate){
 	}
 legend(x='topright',inset=c(.01,.01),legend=legend,lty=seq(1,k),cex=1.5,...)
 }
-
 df.plot <-
 function(df1=1,df2=10,xlim=c(0,6),ylim=c(0,1),...){
 old.par<-par(no.readonly=TRUE)
@@ -1277,7 +1640,6 @@ for(i in df1){
 	}
 legend(x='topright',inset=c(.01,.01),legend=legend,col=m,lty=seq(1,k),cex=1.5,...)
 }
-
 dgamma.plot <-
 function(shape=1,scale=1,xlim=c(0,25),ylim=c(0,1),...){
 old.par<-par(no.readonly=TRUE)
@@ -1298,7 +1660,6 @@ for(i in shape){
 	}
 legend(x='topright',inset=c(.01,.01),legend=legend,col=m,lty=seq(1,k),cex=1.5,...)
 }
-
 dgeom.plot <-
 function(events=25,prob=.5,...){
 old.par<-par(no.readonly=TRUE)
@@ -1318,7 +1679,6 @@ barplot(t(out),beside=TRUE,names=as.character(n),col=m,
   cex.lab=1.5,cex.main=1.5,...)
 legend(x='top',inset=c(.01,.01),legend=legend,fill=m,cex=1.5)
 }
-
 dist.plots <-
 function(x,groups,distance='euclidean',na.rm=TRUE,
 	col='blue',col.line='red',las=1,...){
@@ -1389,7 +1749,6 @@ for(j in 1:length(grp)){ #loop thru groups
 par(old.par)
 
 }
-
 dlnorm.plot <-
 function(meanlog=0,sdlog=1,xlim=c(0,15),ylim=c(0,2),...){
 old.par<-par(no.readonly=TRUE)
@@ -1410,7 +1769,6 @@ for(i in meanlog){
 	}
 legend(x='topright',inset=c(.01,.01),legend=legend,col=m,lty=seq(1,k),cex=1.5,...)
 }
-
 dnbinom.plot <-
 function(events=25,mu=2,size=1,...){
 old.par<-par(no.readonly=TRUE)
@@ -1432,7 +1790,6 @@ barplot(t(out),beside=TRUE,names=as.character(n),col=m,
   cex.lab=1.5,cex.main=1.5,...)
 legend(x='top',inset=c(.01,.01),legend=legend,fill=m,cex=1.5)
 }
-
 dnorm.plot <-
 function(mean=0,sd=1,xlim=c(-3,3),ylim=c(0,1),...){
 old.par<-par(no.readonly=TRUE)
@@ -1453,7 +1810,6 @@ for(i in mean){
 	}
 legend(x='topright',inset=c(.01,.01),legend=legend,col=m,lty=seq(1,k),cex=1.5,...)
 }
-
 dpois.plot <-
 function(events=25,lambda=1,...){
 old.par<-par(no.readonly=TRUE)
@@ -1472,7 +1828,6 @@ barplot(t(out),beside=TRUE,names=as.character(n),col=seq(1:length(lambda)),
   cex.lab=1.5,cex.main=1.5,...)
 legend(x='top',inset=c(.01,.01),legend=legend,fill=seq(1:length(lambda)),cex=1.5)
 }
-
 drop.var <-
 function(x,var='',outfile='',min.cv=0,min.po=0,min.fo=0,
 	max.po=100,max.fo=nrow(x),pct.missing=100){
@@ -1506,8 +1861,7 @@ if(!outfile==''){ #save outfile
 	write.table(z,file=paste(outfile,'.csv',sep=''),quote=FALSE,row.names=FALSE,sep=',')
 	} #end save outfile
 return(z)
-} #end function
-
+}
 dt.plot <-
 function(df=1,ncp=0,xlim=c(-3,3),ylim=c(0,1),...){
 old.par<-par(no.readonly=TRUE)
@@ -1524,7 +1878,45 @@ for(i in df){
 	}
 legend(x='topright',inset=c(.01,.01),legend=legend,lty=seq(1,k),cex=1.5,...)
 }
+ecdf.plots <-
+function(x,var='',by='',...){
 
+old.par<-par(no.readonly=TRUE)
+
+if(!var==''){
+	y<-subset(x,select=eval(parse(text=var))) #select variables to summarize
+	y<-as.data.frame(y)
+	}
+else{y<-as.data.frame(x)}
+
+if(by==''){ #ecdf w/o groups
+	for(i in 1:ncol(y)){ #loop thru variables
+		plot(ecdf(y[[i]]),verticals=TRUE,col.01line = "gray70",
+		xlab=names(y[i]),ylab='Cumulative probability',
+		main='Empirical Cumulative Distribution Function')
+		if(i != ncol(y)) readline("Press return for next plot")
+		} #end loop thru variables
+	} #end ecdf w/o groups
+	
+else{ #ecdf plots w/ groups
+	n<-by.names(x,by) #create by variable
+	y<-cbind(n,y) #bind with selected variables
+	groups<-levels(y[,2]) #create vector of group names
+	s<-floor(length(groups)^.5) #create multi-figure dimension
+	s<-c(s,ceiling(length(groups)/s)) #create multi-figure dimensions
+	for(i in 3:ncol(y)){ #loop thru variables
+		par(mfrow=s,mar=c(5,5,4,2))	#graphics settings	
+		for(j in 1:length(groups)){ #loop thru groups
+			z<-y[y[,2]==groups[j],] #select records for group j
+			plot(ecdf(z[[i]]),verticals=TRUE,col.01line = "gray70",
+			xlab=names(z[i]),ylab='Cumulative probability',
+			main=groups[j])
+			} #end loop thru groups
+			if(i != ncol(y)) {readline("Press return for next plot")}
+		} #end loop thru variables
+	} #end ecdf w/ groups
+par(old.par)
+}
 edf.plots <-
 function(x,var='',by='',...){
 
@@ -1567,94 +1959,57 @@ else{ #ecdf plots w/ groups
 		} #end loop thru variables
 	} #end edf w/ groups
 par(old.par)
-} #end function
-
-ecdf.plots <-
-function(x,var='',by='',...){
-
-old.par<-par(no.readonly=TRUE)
-
-if(!var==''){
-	y<-subset(x,select=eval(parse(text=var))) #select variables to summarize
-	y<-as.data.frame(y)
-	}
-else{y<-as.data.frame(x)}
-
-if(by==''){ #ecdf w/o groups
-	for(i in 1:ncol(y)){ #loop thru variables
-		plot(ecdf(y[[i]]),verticals=TRUE,col.01line = "gray70",
-		xlab=names(y[i]),ylab='Cumulative probability',
-		main='Empirical Cumulative Distribution Function')
-		if(i != ncol(y)) readline("Press return for next plot")
-		} #end loop thru variables
-	} #end ecdf w/o groups
-	
-else{ #ecdf plots w/ groups
-	n<-by.names(x,by) #create by variable
-	y<-cbind(n,y) #bind with selected variables
-	groups<-levels(y[,2]) #create vector of group names
-	s<-floor(length(groups)^.5) #create multi-figure dimension
-	s<-c(s,ceiling(length(groups)/s)) #create multi-figure dimensions
-	for(i in 3:ncol(y)){ #loop thru variables
-		par(mfrow=s,mar=c(5,5,4,2))	#graphics settings	
-		for(j in 1:length(groups)){ #loop thru groups
-			z<-y[y[,2]==groups[j],] #select records for group j
-			plot(ecdf(z[[i]]),verticals=TRUE,col.01line = "gray70",
-			xlab=names(z[i]),ylab='Cumulative probability',
-			main=groups[j])
-			} #end loop thru groups
-			if(i != ncol(y)) {readline("Press return for next plot")}
-		} #end loop thru variables
-	} #end ecdf w/ groups
-par(old.par)
-} #end function
-
+}
 exp.plot <-
 function(rate=1,xlim=c(0,15)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(rate)
+k<-0
 for(i in rate){
+  k<-k+1
 	curve(pexp(x,rate=i),xlim[1],xlim[2],
-		xlab='z',ylab='probability',main='Cumulative Probability')
+		xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 		mtext(paste('(rate=',i,')',sep=''),side=3,col='red')
 	curve(dexp(x,rate=i),xlim[1],xlim[2],
-		xlab='z',ylab='probability density',main='Probability Density')
+		xlab='Z',ylab='Probability density',main='Probability Density')
 		mtext(paste('(rate=',i,')',sep=''),side=3,col='red')
 	curve(qexp(x,rate=i),0,1,
-		xlab='P',ylab='quantiles(z)',main='Quantiles')
+		xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
 		mtext(paste('(rate=',i,')',sep=''),side=3,col='red')
 	y<-rexp(1000,rate=i)
-	hist(y,xlab='z',ylab='frequency',main='Random Numbers')
+	hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
 		mtext(paste('(rate=',i,')',sep=''),side=3,col='red')
-	readline('press return for next plot')
+	if(k<n.plots) readline('press return for next plot')
 	}
 }
-
 f.plot <-
 function(df1=1,df2=10,xlim=c(0,6)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(df1)*length(df2)
+k<-0
 for(i in df1){
 	for(j in df2){
+	  k<-k+1
 		curve(pf(x,df1=i,df2=j),xlim[1],xlim[2],
-			xlab='z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
+			xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 			mtext(paste('(df1=',i,', df2=',j,')',sep=''),side=3,col='red')
 		curve(df(x,df1=i,df2=j),xlim[1],xlim[2],
-			xlab='z',ylab='Probability density',main='Probability Density')
+			xlab='Z',ylab='Probability density',main='Probability Density')
 			mtext(paste('(df1=',i,', df2=',j,')',sep=''),side=3,col='red')
 		curve(qf(x,df1=i,df2=j),0,1,
-			xlab='Cumulative probability (quantile)',ylab='z',main='Quantiles')
+			xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
 			mtext(paste('(df1=',i,', df2=',j,')',sep=''),side=3,col='red')
 		y<-rf(1000,df1=i,df2=j)
-		hist(y,xlab='z',ylab='Frequency',main='Random Numbers')
+		hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
 			mtext(paste('(df1=',i,', df2=',j,')',sep=''),side=3,col='red')
-		readline('press return for next plot')
+	  if(k<n.plots) readline('press return for next plot')
 		}
 	}
 }
-
 foa.plots <-
 function(x,var='',margin='column',outfile='',na.rm=TRUE,col.hist='blue',
 	col.point='blue',col.line='red',col.den='black',las=1,lab=c(10,10,3),...){
@@ -1710,7 +2065,7 @@ readline("Press return for next plot ")
 
 #plot3: histogram of species occurrence - raw scale
 hist(z1,prob=TRUE,col=col.hist,las=las,lab=lab,
-xaxs='i',yaxs='i',xlab='Species Occurrence',ylab='Frequency',
+xaxs='i',yaxs='i',xlab='Species Occurrence',ylab='Probability',
 main='Histogram of Species Occurrence',...)
 par(new=TRUE)
 plot(density(z1,na.rm=na.rm),xaxs='i',yaxs='i',
@@ -1761,7 +2116,7 @@ readline("Press return for next plot ")
 #plot8: empirical distribution of species per plot
 plot(sort(r1),type='o',col=col.point,lab=lab,las=las,
 ylim=c(0,max(r1)),xlim=c(0,length(r1)),yaxs='i',xaxs='i',
-xlab='Plot Rank',ylab='Plot Richness',
+xlab='Plot Rank',ylab='Species Richness',
 main='Empirical Distribution of Plot Richness',...)
 abline(h=quantile(r1,.5),lty=1,col=col.line,...)
 abline(h=quantile(r1,.05),lty=2,col=col.line,...)
@@ -1781,7 +2136,7 @@ readline("Press return for next plot ")
 #plot10: plot of plot richness versus plot total abundance
 plot(r1,r2,type='p',col=col.point,lab=lab,las=las,
 yaxs='i',xaxs='i',
-xlab='Plot Richness',ylab='Plot Total Abundance',
+xlab='Species Richness',ylab='Plot Total Abundance',
 main='Plot Richness vs Total Abundance',...)
 yorn<-readline("Do you want to identify individual plots? Y/N :")
     if(yorn=='Y' || yorn=='y') 
@@ -1789,55 +2144,64 @@ yorn<-readline("Do you want to identify individual plots? Y/N :")
 
 par(old.par)
 return(z)
-} #end function
-
+}
 gamma.plot <-
 function(shape=1,scale=1,xlim=c(0,25)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(shape)*length(scale)
+k<-0
 for(i in shape){
 	for(j in scale){
+	  k<-k+1
 		curve(pgamma(x,shape=i,scale=j),xlim[1],xlim[2],
-			xlab='z',ylab='probability',main='Cumulative Probability')
+			xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 			mtext(paste('(shape=',i,', scale=',j,')',sep=''),side=3,col='red')
 		curve(dgamma(x,shape=i,scale=j),xlim[1],xlim[2],
-			xlab='z',ylab='probability density',main='Probability Density')
+			xlab='Z',ylab='Probability density',main='Probability Density')
 			mtext(paste('(shape=',i,', scale=',j,')',sep=''),side=3,col='red')
 		curve(qgamma(x,shape=i,scale=j),0,1,
-			xlab='P',ylab='quantiles(z)',main='Quantiles')
+			xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
 			mtext(paste('(shape=',i,', scale=',j,')',sep=''),side=3,col='red')
 		y<-rgamma(1000,shape=i,scale=j)
-		hist(y,xlab='z',ylab='frequency',main='Random Numbers')
+		hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
 			mtext(paste('(shape=',i,', scale=',j,')',sep=''),side=3,col='red')
-		readline('press return for next plot')
+		if(k<n.plots) readline('press return for next plot')
 		}
 	}
 }
-
 geom.plot <-
 function(events=25,prob=c(.2,.5,.7)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(events)*length(prob)
+k<-0
 n<-seq(0,events)
 for(i in prob){
+  k<-k+1
 	barplot(pgeom(n,prob=i),names=as.character(n),
-		xlab='count',ylab='probability',main='Cumulative probability')
+		xlab='Count',ylab='Cumulative probability (quantile)',main='Cumulative probability')
 		mtext(paste('(prob=',i,')',sep=''),side=3,col='red')
 	barplot(dgeom(n,prob=i),names=as.character(n),
-		xlab='count',ylab='probability density',main='probability Density')
+		xlab='Count',ylab='Probability',main='Probability Mass')
 		mtext(paste('(prob=',i,')',sep=''),side=3,col='red')
-	barplot(qgeom(seq(0,.9,.1),prob=i),names=seq(0,.9,.1),
-		xlab='P',ylab='quantiles(z)',main='Quantiles')
+	barplot(qgeom(seq(0,.95,.05),prob=i),names=seq(0,.95,.05),
+		xlab='Cumulative probability (quantile)',ylab='Count',main='Quantiles')
 		mtext(paste('(prob=',i,')',sep=''),side=3,col='red')
 	y<-rgeom(1000,prob=i)
-	hist(y,xlab='count',ylab='frequency',main='Random Numbers',col='gray')
+  y.table<-as.data.frame(table(y))
+  y.levels<-as.data.frame(n)
+  names(y.levels)<-'y'
+  y.table<-merge(y.levels,y.table,all.x=TRUE)
+  y.table$Freq[is.na(y.table$Freq)]<-0
+  barplot(y.table$Freq,names=as.character(n),xlab='Count',ylab='Frequency',
+    main='Random Observations',col='gray')
 		mtext(paste('(prob=',i,')',sep=''),side=3,col='red')
-	readline('press return for next plot')
+  if(k<n.plots) readline('press return for next plot')
 	}
 }
-
 hclus.cophenetic <-
 function(d,hclus,fit='lm',...){
 
@@ -1863,7 +2227,6 @@ else if(fit=='qls'){
 par(old.par)
 return(r)
 }
-
 hclus.scree <-
 function(x,...){
 
@@ -1876,7 +2239,6 @@ plot(z[,1],z[,2],type='o',lwd=1.5,pch=19,col='blue',
 	'(',x$dist.method,', ',x$method,')',sep=''),...)
 par(old.par)
 }
-
 hclus.table <-
 function(x){
 
@@ -1889,7 +2251,6 @@ z<-list(z1,z2,z3)
 names(z)<-c('dist.method','method','cluster.table')
 return(z)
 }
-
 hist.plots <-
 function(x,var='',by='',save.plot=FALSE,na.rm=TRUE,
 	col.hist='blue',las=1,lab=c(5,5,4),...){
@@ -1903,7 +2264,7 @@ if(!var==''){
 else{y<-as.data.frame(x)}
 
 if(by==''){ #histogram w/o groups
-	par(mfrow=c(1,1),mar=c(5,5,4,2)) #graphics settings
+	par(mar=c(5,5,4,2)) #graphics settings
 	for(i in 1:ncol(y)){ #loop thru variables
 		par(new=FALSE)
 		hist(y[[i]],col=col.hist,las=las,lab=lab,
@@ -1947,8 +2308,7 @@ else{ #histograms w/ groups
 		} #end loop thru variables
 	} #end histogram w/groups
 par(old.par)
-} #end function
-
+}
 intrasetcor <-
 function(object){ 
 
@@ -1956,11 +2316,10 @@ function(object){
     lc <- sweep(object$CCA$u, 1, sqrt(w), "*")
     cor(qr.X(object$CCA$QR), lc)
 }
-
 kappa.mc <-
-function(fit,test=FALSE,reps=1000,plot=TRUE,...){
+function(fit,test=TRUE,reps=1000,plot=TRUE,...){
 
-owarn <- options("warn")
+owarn<-options("warn")
 on.exit(options(warn=owarn$warn))
 options(warn=-1)
 
@@ -1969,7 +2328,6 @@ options(warn=-1)
 ########################################################################
 
 #Kappa function
-
 cohen.kappa<-function(y){
 	N<-sum(y)
 	ccr<-sum(diag(y))/sum(y)
@@ -1980,7 +2338,7 @@ cohen.kappa<-function(y){
 	k<-num/den
 	k[k<0]<-0
 	return(k)		
-	}
+}
 
 #Kappa optimization function
 kappa.opt<-function(threshold){
@@ -1994,7 +2352,23 @@ kappa.opt<-function(threshold){
 	temp<-c(sum(pred&obs),sum(!pred&obs),sum(pred&!obs),sum(!pred&!obs))
 	temp<-as.table(matrix(temp,nrow=2))
 	cohen.kappa(temp)
-	}
+}
+
+#confusion matrix
+confuse<-function(y,threshold){
+  obs<-y[,1]>0
+  if(threshold==0){
+    pred<-y[,2]>=threshold
+  }
+  else {
+    pred<-y[,2]>threshold
+  }
+  temp<-c(sum(pred&obs),sum(!pred&obs),sum(pred&!obs),sum(!pred&!obs))
+  confuse<-as.table(matrix(temp,nrow=2))
+  rownames(confuse)<-c('predicted present','predicted absent')
+  colnames(confuse)<-c('observed present','observed absent')
+  return(confuse)
+}
 #########################################################################
 
 #compute observed FP and cutpoint
@@ -2003,10 +2377,13 @@ names(out)<-c('observed','fitted')
 temp<-optimize(kappa.opt,interval=c(min(out$fitted),max(out$fitted)),maximum=TRUE)
 cutpoint<-temp$maximum
 Kappa.obs<-temp$objective
+confuse<-confuse(out,cutpoint)
+omission<-confuse[2,1]/sum(confuse[,1])
+commission<-confuse[1,2]/sum(confuse[,2])
 
 #null (random) distribution of Kappa
 if(test==TRUE){
-	Kappa.null<-NULL
+	Kappa.null<-numeric(length=reps)
 	if(is.null(fit$na.action)==TRUE){
 		z2<-fit$data
 		}
@@ -2019,12 +2396,12 @@ if(test==TRUE){
 			c(as.character(fit$formula[[2]]))]
 		e<-new.env()
 		e$fit<-fit
-		for(i in names(z2)) assign(i,z2[[i]],envir=e)
+		for(j in names(z2)) assign(j,z2[[j]],envir=e)
 		temp<-glm(fit$formula,family=fit$family,offset=fit$offset,weights=fit$prior.weights,data=e)
 		out<-as.data.frame(cbind(temp$y,temp$fitted.values))
 		names(out)<-c('observed','fitted')
 		temp<-optimize(kappa.opt,interval=c(min(out$fitted),max(out$fitted)),maximum=TRUE)
-		Kappa.null<-c(Kappa.null,round(temp$objective,3))
+		Kappa.null[i]<-round(temp$objective,3)
 		}
 
 	#compute p-value
@@ -2044,18 +2421,17 @@ if(test==TRUE & plot==TRUE){
 	}
 
 if(test==TRUE){
-	z<-as.data.frame(rbind('Cutpoint'=cutpoint,'Observed Kappa'=round(Kappa.obs,3),
-		'P-value'=format.pval(p.value,digits=3,eps=.001)))
-	names(z)=''
+	z<-list(cutpoint=cutpoint,Kappa=round(Kappa.obs,3),
+	  P.value=format.pval(p.value,digits=3,eps=.001),
+    confusion.matrix=confuse,omission=omission,commission=commission)
 	}
 else{
-	z<-as.data.frame(rbind('Cutpoint'=cutpoint,'Observed Kappa'=round(Kappa.obs,3)))
-	names(z)=''
+	z<-list(cutpoint=cutpoint,Kappa=round(Kappa.obs,3),
+    confusion.matrix=confuse,omission=omission,commission=commission)
 	}
 
 return(z)
 }
-
 lda.structure <-
 function(x.lda,x,dim=ncol(x.lda),
 	digits=3,cutoff=0){
@@ -2076,31 +2452,32 @@ z[abs(z)<cutoff]<-substring('',1,nchar(z[1,1]))
 z<-as.data.frame(z)
 return(z)
 }
-
 lnorm.plot <-
 function(meanlog=0,sdlog=1,xlim=c(0,15)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(meanlog)*length(sdlog)
+k<-0
 for(i in meanlog){
 	for(j in sdlog){
+	  k<-k+1
 		curve(plnorm(x,meanlog=i,sdlog=j),xlim[1],xlim[2],
-			xlab='z',ylab='probability',main='Cumulative Probability')
+			xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 			mtext(paste('(meanlog=',i,', sdlog=',j,')',sep=''),side=3,col='red')
 		curve(dlnorm(x,meanlog=i,sdlog=j),xlim[1],xlim[2],
-			xlab='z',ylab='probability density',main='Probability Density')
+			xlab='Z',ylab='Probability density',main='Probability Density')
 			mtext(paste('(meanlog=',i,', sdlog=',j,')',sep=''),side=3,col='red')
 		curve(qlnorm(x,meanlog=i,sdlog=j),0,1,
-			xlab='P',ylab='quantiles(z)',main='Quantiles')
+			xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
 			mtext(paste('(meanlog=',i,', sdlog=',j,')',sep=''),side=3,col='red')
 		y<-rlnorm(1000,meanlog=i,sdlog=j)
-		hist(y,xlab='z',ylab='frequency',main='Random Numbers')
+		hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
 			mtext(paste('(meanlog=',i,', sdlog=',j,')',sep=''),side=3,col='red')
-		readline('press return for next plot')
+		if(k<n.plots) readline('press return for next plot')
 		}
 	}
 }
-
 mantel2 <-
 function(xdis,ydis,method='pearson',permutations=1000,strata=NULL){
 
@@ -2137,7 +2514,6 @@ function(xdis,ydis,method='pearson',permutations=1000,strata=NULL){
   class(res)<-'mantel'
   res
 }
-
 mantel.part <-
 function(y,x1,x2,x3='',p='', digits=3,
 	ydist='euclidean',xdist='euclidean',pdist='euclidean',
@@ -2267,7 +2643,6 @@ else{
 class(out)<-'mantel.part'
 out
 }
-
 mrpp2 <-
 function(dat,grouping,permutations=1000,distance='euclidean',
   weight.type=1,strata){
@@ -2336,7 +2711,6 @@ function(dat,grouping,permutations=1000,distance='euclidean',
   class(out)<-'mrpp'
   out
 }
-
 mv.outliers <-
 function(x,method,var='',cor.method='pearson',
 	outfile='',sd.limit=3,alpha=.001,plot=TRUE,save.plot=FALSE,
@@ -2438,33 +2812,40 @@ else{ #all other distances
 	
 par(old.par)
 return(z)
-} #end function	
-
+}
 nbinom.plot <-
 function(events=25,mu=2,size=1){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(mu)*length(size)
+k<-0
 n<-seq(0,events)
 for(i in mu){
 	for(j in size){
+	  k<-k+1
 		barplot(pnbinom(n,mu=i,size=j),names=as.character(n),
-			xlab='count',ylab='sizeability',main='Cumulative sizeability')
+			xlab='Count',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 			mtext(paste('(mu=',i,', k=',j,')',sep=''),side=3,col='red')
 		barplot(dnbinom(n,mu=i,size=j),names=as.character(n),
-			xlab='count',ylab='sizeability density',main='sizeability Density')
+			xlab='Count',ylab='Probability',main='Probability Mass')
 			mtext(paste('(mu=',i,', k=',j,')',sep=''),side=3,col='red')
-		barplot(qnbinom(seq(0,.9,.1),mu=i,size=j),names=seq(0,.9,.1),
-			xlab='P',ylab='quantiles(z)',main='Quantiles')
+		barplot(qnbinom(seq(0,.95,.05),mu=i,size=j),names=seq(0,.95,.05),
+			xlab='Cumulative probability (quantile)',ylab='Count',main='Quantiles')
 			mtext(paste('(mu=',i,', k=',j,')',sep=''),side=3,col='red')
 		y<-rnbinom(1000,mu=i,size=j)
-		hist(y,xlab='count',ylab='frequency',main='Random Numbers',col='gray')
+	  y.table<-as.data.frame(table(y))
+	  y.levels<-as.data.frame(n)
+	  names(y.levels)<-'y'
+	  y.table<-merge(y.levels,y.table,all.x=TRUE)
+	  y.table$Freq[is.na(y.table$Freq)]<-0
+	  barplot(y.table$Freq,names=as.character(n),xlab='Count',ylab='Frequency',
+      main='Random Observations',col='gray')
 			mtext(paste('(mu=',i,', k=',j,')',sep=''),side=3,col='red')
-		readline('press return for next plot')
+	  if(k<n.plots) readline('press return for next plot')
 		}
 	}
 }
-
 nhclus.scree <-
 function(x,max.k,...){
 
@@ -2503,7 +2884,6 @@ title(main='Scree Plot of K-means Clustering')
 par(old.par)
 return(y)
 }
-
 nmds.monte <-
 function(x,k,distance='bray',trymax=50,autotransform=FALSE,
 	trace=0,zerodist='add',perm=100,col.hist='blue',col.line='red',
@@ -2539,7 +2919,6 @@ print(y.stress)
 z<-rbind('Observed stress'=z.stress,'P-value'=p.value)
 return(z)
 }
-
 nmds.scree <-
 function(x,distance='bray',k=6,trymax=50,
 	autotransform=FALSE,trace=0,...){
@@ -2562,31 +2941,32 @@ plot(nmds.dim,nmds.stress,type='o',pch=19,col='blue',
 
 par(old.par)
 }
-
 norm.plot <-
 function(mean=0,sd=1,xlim=c(-3,3)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(mean)*length(sd)
+k<-0
 for(i in mean){
 	for(j in sd){
+	  k<-k+1
 		curve(pnorm(x,mean=i,sd=j),xlim[1],xlim[2],
-			xlab='z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
+			xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 			mtext(paste('(mean=',i,', sd=',j,')',sep=''),side=3,col='red')
 		curve(dnorm(x,mean=i,sd=j),xlim[1],xlim[2],
-			xlab='z',ylab='Probability density',main='Probability Density')
+			xlab='Z',ylab='Probability density',main='Probability Density')
 			mtext(paste('(mean=',i,', sd=',j,')',sep=''),side=3,col='red')
 		curve(qnorm(x,mean=i,sd=j),0,1,
-			xlab='Cumulative probability (quantile)',ylab='z',main='Quantiles')
+			xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
 			mtext(paste('(mean=',i,', sd=',j,')',sep=''),side=3,col='red')
 		y<-rnorm(1000,mean=i,sd=j)
-		hist(y,xlab='z',ylab='Frequency',main='Random Numbers')
+		hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
 			mtext(paste('(mean=',i,', sd=',j,')',sep=''),side=3,col='red')
-		readline('press return for next plot')
+	  if(k<n.plots) readline('press return for next plot')
 		}
 	}
 }
-
 norm.test <-
 function(x,groups='',var='',method='ad',...){
 
@@ -2657,7 +3037,6 @@ z<-as.data.frame(z)
 z[,2]<-format.pval(z[,2],digits=3,eps=.001)		
 return(z)
 }
-
 ordi.monte <-
 function(x,ord,dim=length(x),perm=1000,center=TRUE,
 	scale=TRUE,digits=3,plot=TRUE,col.hist='blue',col.line='red',
@@ -2751,7 +3130,6 @@ colnames(z)<-names
 z<-round(z,digits=digits)
 return(z)
 }
-
 ordi.overlay <-
 function(x.ord,x,var='',fit=TRUE,choices=c(1,2),expand=5,
 	tau=.95,pch=19,...){
@@ -2802,7 +3180,6 @@ for(i in 1:length(y)){
 		}
 	}
 }
-
 ordi.part <-
 function(y,x1,x2,x3='',p='',method='rda',model='reduced',digits=3,...){
 
@@ -3051,7 +3428,6 @@ else{
 class(out)<-'ordi.part'
 out
 }
-
 ordi.scree <-
 function(x,ord,...){
 
@@ -3125,7 +3501,6 @@ plot(cumsum(eig/sum(eig)),type='o',pch=19,col='blue',
 		title(main='Cumulative Scree Plot of Constrained Eigenvalues')
 		}	
 }
-
 panel.cor <-
 function(x, y, digits=2, prefix="", cex.cor,...)
 {
@@ -3138,7 +3513,6 @@ function(x, y, digits=2, prefix="", cex.cor,...)
     if(missing(cex.cor)) cex <- 0.8/strwidth(txt)
     text(0.5, 0.5, txt, cex = cex * r.abs)
 }
-
 pbinom.plot <-
 function(size=10,prob=.5,col=NULL,...){
 legend<-NULL
@@ -3159,7 +3533,6 @@ barplot(t(out),beside=TRUE,names=as.character(n),col=col.bar,
 abline(h=0,col='gray')
 legend(x='topleft',inset=c(.01,.01),legend=legend,fill=col.bar,cex=1,bty='n')
 }
-
 pca.communality <-
 function(x.pca,x,dim=length(x.pca$sdev),
 	digits=3){
@@ -3183,7 +3556,6 @@ c<-round(c,digits=digits)
 c<-as.data.frame(c)
 return(c)
 }
-
 pca.eigenval <-
 function(x.pca,dim=length(x.pca$sdev),digits=7){
 
@@ -3216,7 +3588,6 @@ colnames(z)<-names
 z<-round(z,digits=digits)
 return(z)
 }
-
 pca.eigenvec <-
 function(x.pca,dim=length(x.pca$sdev),
 	digits=7,cutoff=0){
@@ -3234,7 +3605,6 @@ z[abs(x.pca$rotation[,1:dim])<cutoff]<-substring('',1,nchar(z[1,1]))
 z<-as.data.frame(z)
 return(z)
 }
-
 pca.structure <-
 function(x.pca,x,dim=length(x.pca$sdev),
 	digits=3,cutoff=0){
@@ -3255,7 +3625,6 @@ z[abs(z)<cutoff]<-substring('',1,nchar(z[1,1]))
 z<-as.data.frame(z)
 return(z)
 }
-
 plot.anosim <-
 function(x,title1='ANOSIM (within- vs between-group rank dissimilarities)',
 	title2='ANOSIM (observed vs expected R)',col='blue',...){
@@ -3294,7 +3663,6 @@ mtext(paste('Observed R = ',round(x$statistic,3),',',
 	'Expected R = ',round(E.r,3),',','P = ',pval),3)
 
 }
-
 plot.mantel <-
 function(x,title1='MANTEL Scatterplot)',
 	title2='MANTEL (observed vs expected R)',col='blue',...){
@@ -3334,7 +3702,6 @@ mtext(paste('Observed r = ',round(x$statistic,3),',',
 	'Expected r = ',round(E.r,3),',','P = ',pval),3)
 
 }
-
 plot.mrpp <-
 function(x,title1='MRPP (within- vs between-group dissimilarities)',
 	title2='MRPP (observed vs expected delta)',col='blue',...){
@@ -3372,7 +3739,6 @@ mtext(paste('Observed delta = ',round(x$delta,3),',',
 	'Expected delta = ',round(x$E.delta,3),',','P = ',pval),3)
 
 }
-
 plot.ordi.part <-
 function(x,which='total',digits=1,...){
 
@@ -3420,30 +3786,38 @@ if(which=='total') title('Partition = Percent of Total Variance')
 else if (which=='constrained') title('Partition = Percent of Explained Variance')
 invisible()
 }
-
 pois.plot <-
 function(events=25,lambda=1,xlim=c(0,25)){
 old.par<-par(no.readonly=TRUE)
 on.exit(par(old.par))
 par(mfrow=c(2,2))
+n.plots<-length(lambda)
+k<-0
+n<-seq(0,events)
 for(i in lambda){
-	n<-seq(0,events)
+  k<-k+1
 	barplot(ppois(n,lambda=i),names=as.character(n),
-		xlab='# events',ylab='probability',main='Cumulative Probability')
+		xlab='# Events',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
 		mtext(paste('(lambda=',i,')',sep=''),side=3,col='red')
 	barplot(dpois(n,lambda=i),names=as.character(n),
-		xlab='# events',ylab='probability density',main='Probability Density')
+		xlab='# Events',ylab='Probability',main='Probability Mass')
 		mtext(paste('(lambda=',i,')',sep=''),side=3,col='red')
-	barplot(qpois(seq(0,.9,.1),lambda=i),names=seq(0,.9,.1),
-		xlab='P',ylab='quantiles(z)',main='Quantiles')
+	barplot(qpois(seq(0,.95,.05),lambda=i),names=seq(0,.95,.05),
+		xlab='Cumulative probability (quantile)',ylab='# Events',
+    main='Quantiles')
 		mtext(paste('(lambda=',i,')',sep=''),side=3,col='red')
 	y<-rpois(1000,lambda=i)
-	hist(y,xlab='# events',ylab='frequency',main='Random Numbers',col='gray')
-		mtext(paste('(lambda=',i,')',sep=''),side=3,col='red')
-	readline('press return for next plot')
+  y.table<-as.data.frame(table(y))
+  y.levels<-as.data.frame(n)
+  names(y.levels)<-'y'
+  y.table<-merge(y.levels,y.table,all.x=TRUE)
+  y.table$Freq[is.na(y.table$Freq)]<-0
+  barplot(y.table$Freq,names=as.character(n),xlab='# Events',ylab='Frequency',
+    main='Random Observations',col='gray')
+    mtext(paste('(lambda=',i,')',sep=''),side=3,col='red')
+  if(k<n.plots) readline('press return for next plot')
 	}
 }
-
 qqnorm.plots <-
 function(x,var='',by='',save.plot=FALSE,
 	na.rm=TRUE,col.point='blue',col.line='red',las=1,...){
@@ -3496,8 +3870,7 @@ else{ #QQnorm plots w/ groups
 			if(!i==ncol(y)) {readline("Press return for next plot ")}
 		} #end loop thru variables
 	} #end qqnorm w/ groups
-} #end function
-
+}
 ran.split <-
 function(x,grouping='',prop=.5){
 
@@ -3533,7 +3906,6 @@ names(z)<-c('Random Subset Summary:','Training Table','Validation Table',
   'Training dataset','Validation dataset')
 return(z)
 }
-
 redun.plot <-
 function(x,var='',perm=1000,quantiles=c(.025,.975),...){
 
@@ -3610,7 +3982,6 @@ else{
 
 par(old.par)
 }
-
 replace.missing <-
 function(x,var='',method='median',outfile=''){
 
@@ -3643,8 +4014,7 @@ if(!outfile==''){ #save outfile
 	write.table(z,file=paste(outfile,'.csv',sep=''),quote=FALSE,sep=',')
 	} #end save outfile
 return(z)
-} #end function
-
+}
 scatter.plots <-
 function(data,y,x,fit='lowess',col.line='red',cex.main=2,...){
 
@@ -3679,8 +4049,7 @@ for(i in 1:ncol(y)){
 	} #end loop thru y variables
 	
 par(oldpar)
-} #end function
-
+}
 sum.stats <-
 function(x,var='',by='',margin='column',...){
 
@@ -3790,8 +4159,31 @@ else{ #summary table w/ groups
 		} #end loop thru groups
 	} #end summary table w/ groups
 return(z)
-} #end function
-
+}
+t.plot <-
+function(df=1,ncp=0,xlim=c(-3,3)){
+old.par<-par(no.readonly=TRUE)
+on.exit(par(old.par))
+par(mfrow=c(2,2))
+n.plots<-length(df)
+k<-0
+for(i in df){
+  k<-k+1
+	curve(pt(x,df=i,ncp=ncp),xlim[1],xlim[2],
+		xlab='Z',ylab='Cumulative probability (quantile)',main='Cumulative Probability')
+		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
+	curve(dt(x,df=i,ncp=ncp),xlim[1],xlim[2],
+		xlab='Z',ylab='Probability density',main='Probability Density')
+		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
+	curve(qt(x,df=i,ncp=ncp),0,1,
+		xlab='Cumulative probability (quantile)',ylab='Z',main='Quantiles')
+		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
+	y<-rt(1000,df=i,ncp=ncp)
+	hist(y,xlab='Z',ylab='Frequency',main='Random Observations')
+		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
+	if(k<n.plots) readline('press return for next plot')
+	}
+}
 tau <-
 function(y,prior){
 
@@ -3806,29 +4198,6 @@ tau<-num/den
 tau[tau<0]<-0
 return(tau)		
 }
-
-t.plot <-
-function(df=1,ncp=0,xlim=c(-3,3)){
-old.par<-par(no.readonly=TRUE)
-on.exit(par(old.par))
-par(mfrow=c(2,2))
-for(i in df){
-	curve(pt(x,df=i,ncp=ncp),xlim[1],xlim[2],
-		xlab='z',ylab='probability',main='Cumulative Probability')
-		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
-	curve(dt(x,df=i,ncp=ncp),xlim[1],xlim[2],
-		xlab='z',ylab='probability density',main='Probability Density')
-		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
-	curve(qt(x,df=i,ncp=ncp),0,1,
-		xlab='P',ylab='quantiles(z)',main='Quantiles')
-		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
-	y<-rt(1000,df=i,ncp=ncp)
-	hist(y,xlab='z',ylab='frequency',main='Random Numbers')
-		mtext(paste('(df=',i,')',sep=''),side=3,col='red')
-	readline('press return for next plot')
-	}
-}
-
 uv.outliers <-
 function(x,id,var,by=NULL,outfile=NULL,sd.limit=3,digits=3){
 
@@ -3885,8 +4254,7 @@ else{
 	} #end sd outliers w/groups
 	
 return(z)
-} #end function	
-
+}
 uv.plots <-
 function(x,var=NULL,col.fill='blue',col.point='black',
 	col.line='red',...){
@@ -3944,5 +4312,46 @@ for(i in 1:ncol(y)){
 	} #end loop thru variables
 	
 par(oldpar)
-} #end function
+}
+weibull.plot <-
+function(shape=1,mri=10){
+old.par<-par(no.readonly=TRUE)
+on.exit(par(old.par))
+par(mfrow=c(2,2))
 
+#define time since event function
+tweibull<-function(x,shape=shape,scale=scale){
+  1-pweibull(x,shape=shape,scale=scale)
+}
+
+hweibull<-function(x,shape,mri){
+  scale<-round(mri/gamma(1+(1/shape)),0)
+  z<-(shape*(x^(shape-1)))/(scale^shape)
+  return(z)  
+}
+
+#define scale as a function of mri and shape
+scale<-round(mri/gamma(1+(1/shape)),0)
+
+#create plots
+curve(pweibull(x,shape,scale),from=0,to=2.5*scale,ylim=c(0,1),
+	xlab='Time (between events)',
+  ylab='Cumulative probability (quantile)',
+  main='Cumulative Probability')
+	mtext(paste('(shape=',shape,', mri=',mri,')',sep=''),side=3,col='red')
+curve(dweibull(x,shape,scale),from=0,to=2.5*scale,
+	xlab='Time (between events)',
+  ylab='Probability density',
+  main='Probability Density')
+	mtext(paste('(shape=',shape,', mri=',mri,')',sep=''),side=3,col='red')
+curve(tweibull(x,shape,scale),from=0,to=2.5*scale,ylim=c(0,1),
+	xlab='Time (since last event)',
+  ylab='Prob (not having an event up to time t)',
+  main='Time Since Event')
+	mtext(paste('(shape=',shape,', mri=',mri,')',sep=''),side=3,col='red')
+curve(hweibull(x,shape,mri),from=0,to=5*scale,
+  xlab='Time(between events)',
+  ylab='Hazard',
+  main='Hazard Function')
+	mtext(paste('(shape=',shape,', mri=',mri,')',sep=''),side=3,col='red')
+}

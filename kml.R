@@ -5,9 +5,9 @@
 # CreateColorsByMetadata Function ----------------------------------------------
 
 ###  Creates and/or displays dataframe of IDs and their associated colors 
-###  Usage: CreateColorsByMetadata(file = ,output, display)
+###  Usage: CreateColorsByMetadata(file = , metadata_id)
 ###  Arguments: file = CSV file with columns for "id" and "icon_color"
-###             id = column name for unique identifier, default is "id"
+###             metadata_id = column name for unique identifier, default is "id"
 ###  Returns: df with ID names and hexidecimal colors          
 ###  Notes: Used in several other functions
 ###  Blake Massey
@@ -93,11 +93,11 @@ CreateColorsByVar <- function (df,
 
 ###  Create a Google Earth KML file (points and multitrack) from lat/long 
 ###    coordinates
-###  Usage: ExportKMLTelemetry(df, id, datetime, lat, long, speed, alt,alt_mode, 
-###    alt_mode, agl, behavior, point_color, point_metadata, point_pal, 
-###    point_r_pal, point_b_pal, path_color, path_metadata, path_pal 
-###    path_r_pal, path_b_pal, extrude, labelscale, dateformat, 
-###    timeformat, datetimeformat) 
+###  Usage: ExportKMLTelemetry(df, id, datetime, lat, long, alt, alt_mode, 
+###    speed, agl, behavior, point_color, point_metadata, point_pal, 
+###    point_r_pal, point_b_pal, extrude, path, path_color, path_metadata, 
+###    path_pal, path_r_pal, path_b_pal, arrow, icon_by_sex, labelscale, 
+###    dateformat, timeformat, datetimeformat, file, kml_folder)
 ###  Arguments: df = input dataframe, must have id, lat, long, and datetime 
 ###             id = column name of unique identifier, data is split into unique
 ###               paths and separate folders based on this parameter
@@ -218,17 +218,19 @@ ExportKMLTelemetry <- function (df,
   }
   if (file_ext(outfile) == "") {
     outfile <- paste0(outfile, ".kml")  # if object has no extension
-  } 
+  }  
   df <- df 
   df$id <- df[ ,id]  
   df$lat <- df[ ,lat]  
   df$long <- df[ ,long] 
+  if(!"sex" %in% colnames(df))  df$sex <- NA 
   if (!is.null(alt)){
     df$desc_alt <- df[ ,alt]  # writes altitude to the "alt" column
     alt1 <- '\t\t\t\t\tAltitude: '  # first part of "Altitude" description
     alt2 <- '\n'  # second part of "Altitude" description
   } else {
-    df$desc_alt <- ""  # makes the altitude column a vector of blank values  
+    df$alt <- 0  # makes the altitude column a vector of NA  
+    df$desc_alt <- ""  # makes the altitude description blank values 
     alt1 <- NULL  # prevents "Altitude" description from being written
     alt2 <- NULL  # prevents "Altitude" description from being written    
   }
@@ -397,7 +399,8 @@ ExportKMLTelemetry <- function (df,
     if (is.null(path_color)) path_color <- id
     if (is.null(path_b_pal)) path_b_pal <- point_b_pal
     if (!is.null(path_metadata)) {
-      path_colors <- CreateColorsByMetadata(file=path_metadata, id=path_color)
+      path_colors <- CreateColorsByMetadata(file=path_metadata, 
+        metadata_id=path_color)
       path_colors <- subset(path_colors, names(path_colors) %in% 
         unique(df[,path_color]))
     } else {
