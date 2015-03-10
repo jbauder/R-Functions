@@ -1883,6 +1883,105 @@ ImportLandscapeRasterStack <- function(){
   return(raster_stack)
 }
 
+# PackCircles Function ---------------------------------------------------------
+###  Simple circle packing algorithm based on inverse size weighted repulsion
+###  Usage: PackCircles(config, extent, max_iter, overlap)
+###  Arguments:  config = matrix with two cols: radius, n
+###              extent = extent of bounding rectangle: c(x_min, x_max, y_min, 
+###                 y_max). Default is (10000, 10000, 10000, 10000).
+###              max_iter = maximum number of iterations to try
+###              overlap = allowable overlap expressed as proportion of joint 
+###                radii 
+###              plot = logical, whether or not to draw a plot
+###  Returns: A dataframe of points             
+###  Notes: Original code from: http://www.r-bloggers.com/circle-packing-with-r
+###   Slight modifications were made for code consistency and additional 
+###   functionality. 
+###  Blake Massey
+###  2015.03.02
+
+PackCircles <- function(config, 
+                        extent = c(10000, 10000, 10000, 10000), 
+                        max_iter = 1000, 
+                        overlap = 0,
+                        plot = TRUE) {
+  tol <- 0.0001 # round-off tolerance
+  if (overlap < 0 | overlap >= 1) { # convert overlap to proportion of radius
+    stop("overlap should be in the range [0, 1)")
+  }
+  size <- c((extent[2] - extent[1]), (extent[4] - extent[3]))
+  p_radius <- 1 - overlap
+  n_circles <- sum(config[,2])
+  repel <- function(xyr, c0, c1) {
+    dx <- xyr[c1, 1] - xyr[c0, 1]
+    dy <- xyr[c1, 2] - xyr[c0, 2]
+    d <- sqrt(dx*dx + dy*dy)
+    r <- xyr[c1, 3] + xyr[c0, 3]
+    w0 <- xyr[c1, 3] / r
+    w1 <- xyr[c0, 3] / r
+    if (d < r - tol) {
+      p <- (r - d) / d
+      xyr[c1, 1] <<- toroid(xyr[c1, 1] + p*dx*w1, 1)
+      xyr[c1, 2] <<- toroid(xyr[c1, 2] + p*dy*w1, 2)
+      xyr[c0, 1] <<- toroid(xyr[c0, 1] - p*dx*w0, 1)
+      xyr[c0, 2] <<- toroid(xyr[c0, 2] - p*dy*w0, 2)
+      return(TRUE)
+    }
+    return(FALSE)
+  }
+  toroid <- function(coord, axis) {
+    tcoord <- coord
+    if (coord < 0) {
+      tcoord <- coord + size[axis]
+    } else if (coord >= size[axis]) {
+      tcoord <- coord - size[axis]
+    }
+    tcoord
+  }
+  xyr <- matrix(0, n_circles, 3)
+  pos0 <- 1
+  for (i in 1:nrow(config)) {
+    pos1 <- pos0 + config[i,2] - 1
+    xyr[pos0:pos1, 1] <- runif(config[i, 2], 0, size[1])
+    xyr[pos0:pos1, 2] <- runif(config[i, 2], 0, size[2])
+    xyr[pos0:pos1, 3] <- config[i, 1] * p_radius
+    pos0 <- pos1 + 1
+  }
+  for (iter in 1:max_iter) {
+    moved <- FALSE
+    for (i in 1:(n_circles-1)) {
+      for (j in (i+1):n_circles) {
+        if (repel(xyr, i, j)) {
+          moved <- TRUE
+        }
+      }
+    }
+    if (!moved) break
+  }
+  cat(paste(iter, "iterations\n"));
+  if (max(xyr[,1:2]) > 1) { 
+    xyr[,1] <- as.integer(xyr[,1])
+    xyr[,2] <- as.integer(xyr[,2])
+  }
+  xyr[,1] <- xyr[,1] + extent[1]
+  xyr[,2] <- xyr[,2] + extent[3]
+  if (plot == TRUE) { 
+    DrawCircle <- function(x, y, r, col) {   #  helper function
+      lines(cos(seq(0, 2*pi, pi/180)) * r+x, sin(seq(0, 2*pi, pi/180)) * r+y, 
+      col=col)
+    } 
+    plot(0, type="n", xlab="x", xlim=c(extent[1],extent[2]), ylab="y", 
+      ylim=c(extent[3], extent[4]))
+    xyr[, 3] <- xyr[, 3] / p_radius
+    for (i in 1:nrow(xyr)) {
+      DrawCircle(xyr[i, 1], xyr[i, 2], xyr[i, 3], "gray")
+    }
+  }
+  colnames(xyr) <- c("x", "y", "radius")
+  xy <- xyr[,1:2] 
+  return(xy) 
+}
+
 # PrintRasterNames Function ----------------------------------------------------
 
 ###  Prints the position and name of the rasters in a RasterStack or RasterBrick       

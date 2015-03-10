@@ -59,7 +59,7 @@ function(formula, data, ..., control=usual, pick = TRUE, prune = 0, textsize = 0
 
 
 	weightval <<- weight
-	if(length(dev.list()) < 2) cart.init()	# open windows if not yet open
+#	if(length(dev.list()) < 2) cart.init()	# open windows if not yet open
 	z <- rpart(formula, data, weightval, control=control, ...)
 	if(smooth > 1) {
 		q <- z$cptable
@@ -540,9 +540,9 @@ list(loss = t(matrix(c(0,cost,0),2,2)))
 `plotcp2` <-
 function(...)
 {
-	dev.set(3)
+#	dev.set(1)
 	plotcp(...)
-	dev.set(2)
+#	dev.set(2)
 	return()
 }
 
