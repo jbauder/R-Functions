@@ -1,5 +1,6 @@
 # --- SIMULATION FUNCTIONS -----------------------------------------------------
 # General functions for simulation construction and analysis of simulation
+# Added a line
 # ------------------------------------------------------------------------------
 
 # CreateSumIntervals Function -------------------------------------------------
