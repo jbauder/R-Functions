@@ -166,55 +166,53 @@ FindFirstSumInterval <- function(sim_start,
     first_int <- as.interval(period(1, "year"), dmy(paste0(sum_interval[1], 
       year(start_year))))
     if (sim_start %within% first_int) { 
-      first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[1], 
-        year(start_year + period(1, "year")))))
+      first_sum_int <- new_interval(sim_start, (dmy(paste0(sum_interval[1], 
+        year(start_year + period(1, "year"))))-1))
     } else {
-      first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[1], 
-        year(start_year))))    
+      first_sum_int <- new_interval(sim_start, (dmy(paste0(sum_interval[1], 
+        year(start_year)))))    
     }
   }
   if (length(sum_interval) == 2) {
-    first_int <- as.interval(dmy(paste0("0101", year(start_year))),
-      dmy(paste0(sum_interval[1], year(start_year))))
-    if ((sim_start + period(1, "second")) %within% first_int) { 
+    last_int <- as.interval(dmy(paste0(sum_interval[2], year(start_year))),
+      dmy(paste0("0101", (year(start_year)+1))))
+    if (sim_start %within% last_int) { 
       first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[1], 
-        year(start_year)))) 
-    } 
-    if (exists("first_sum_int") == FALSE) {
+        (year(start_year)+1)))) 
+    } else {
       second_int <- as.interval(dmy(paste0(sum_interval[1], year(start_year))),
         dmy(paste0(sum_interval[2], year(start_year))))
-      if ((sim_start + period(1, "second")) %within% second_int) { 
+      if (sim_start %within% second_int) { 
         first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[2], 
           year(start_year))))  
       } else { 
         first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[1], 
-          year(start_year+period(1, "year")))))   
+          year(start_year))))   
       }
     }
   }
   if (length(sum_interval) > 2) { 
-    first_int <- as.interval(dmy(paste0("0101", year(start_year))),
-        dmy(paste0(sum_interval[1], year(start_year))))
-    if ((sim_start + period(1, "second")) %within% first_int) { 
+    i <- length(sum_interval)
+    last_int <- as.interval(dmy(paste0(sum_interval[i], year(start_year))),
+      dmy(paste0("0101", (year(start_year)+1))))
+    if (sim_start %within% last_int) { 
       first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[1], 
-        year(start_year))))
+        (year(start_year)+1))))
     }
-    for (i in 2:(length(sum_interval)-1)) { 
+    for (i in rev(1:(length(sum_interval)-1))) { 
       mid_int <- as.interval(dmy(paste0(sum_interval[i], year(start_year))),
-        dmy(paste0(sum_interval[i+1], year(start_year))))
-      if ((sim_start + period(1, "second")) %within% mid_int) { 
+        dmy(paste0(sum_interval[i+1], year(start_year)))-1)
+      if (sim_start %within% mid_int) { 
         first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[i+1], 
-          year(start_year))))  
+          year(start_year)))) 
+        first <- FALSE
       }
     }
-    for (i in length(sum_interval)) { 
-      last_int <- as.interval(dmy(paste0(sum_interval[i], year(start_year))),
-        dmy(paste0("0101", (year(start_year)+1) )))
-      if ((sim_start + period(1, "second")) %within% last_int) { 
-        first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[1], 
-          (year(start_year)+1))))   
-      }
+    if (!exists("first_sum_int")){
+      first_sum_int <- new_interval(sim_start, dmy(paste0(sum_interval[1], 
+        year(start_year)))) 
     }
+    first_sum_int
   }
   return(first_sum_int)
 }
