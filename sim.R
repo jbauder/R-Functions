@@ -219,3 +219,110 @@ FindFirstSumInterval <- function(sim_start,
   }
   return(first_sum_int)
 }
+
+# CreateStepIntervals Function --------------------------------------------------
+
+### Create step intervals within a summary interval
+### Usage:     CreateStepIntervals(current_sum_interval = current_sum_interval,step_period = step_period)
+### Arguments: current_sum_interval = an Interval object from lubridate that represents the
+###             current summary interval
+###            step_period = a Period object specifying the length of the step period. The
+###             step_period should be of equal or greater length than the time_step_period. Note that if
+###             current_sum_interval is not evenly divisible by step_period the last step_interval is removed
+###             so that all step_intervals returned are of equal duration.
+### Returns: a list of intervals
+### Notes:
+### Javan Bauder
+### 2015.03.13
+
+CreateStepIntervals <- function(current_sum_interval = current_sum_interval,
+                              step_period = step_period) {
+  suppressPackageStartupMessages(require(lubridate))
+  step_intervals <- list()
+  interval_counter <- 1
+  current_start <- int_start(current_sum_interval)
+  current_end <- (current_start + step_period)
+  stop_point<-int_end(current_sum_interval)
+  while(current_start < (stop_point)){
+    current_end <- (current_start+step_period)
+    step_intervals[[interval_counter]] <- new_interval(current_start,current_end)
+    interval_counter <- interval_counter + 1
+    current_start <- current_start + step_period
+  }
+  if(int_end(step_intervals[[length(step_intervals)]]) > stop_point){
+    step_intervals[[length(step_intervals)]] <- NULL
+  }
+  return(step_intervals)
+}
+
+
+
+# CreateTimeSteps Function --------------------------------------------------
+
+### Create the time steps within a step interval
+### Usage:     CreateTimeSteps(current_step_interval = current_step_interval,time_step_period = time_step_period)
+### Arguments: current_step_interval = an Interval object from lubridate that represents the
+###             current step interval
+###            time_step_period = a Period object specifying the length of the time step period. Note that if
+###             the length  of the current_step_interval is equal to the time_step_period the function will return
+###             a POSIXct object with the same date as the end of the current_step_interval.
+### Returns: a list of intervals
+### Notes:
+### Javan Bauder
+### 2015.03.13
+
+CreateTimeSteps <- function(current_step_interval=current_step_interval,
+                              time_step_period=time_step_period){
+  suppressPackageStartupMessages(require(lubridate))
+  options(lubridate.verbose=FALSE)
+  time_steps <- list()
+  step_start <- int_start(current_step_interval) + time_step_period
+  time_steps[[1]] <- step_start
+  stop_point <- int_end(current_step_interval)
+  seconds_to_add <- period_to_seconds(time_step_period)
+  t.step <- 2
+  while(time_steps[[t.step-1]] != (stop_point)){
+    time_steps[[t.step]] <- (step_start + seconds_to_add)
+    t.step <- t.step + 1
+    seconds_to_add <- seconds_to_add + period_to_seconds(time_step_period)
+  }
+  return(time_steps)
+}
+
+# CreateTimeStepsv2 Function --------------------------------------------------
+
+### Create the time steps within a step interval
+### Usage:     CreateTimeStepsv2(current_step_interval = current_step_interval,time_step_period = time_step_period)
+### Arguments: current_step_interval = an Interval object from lubridate that represents the
+###             current step interval
+###            time_step_period = a Period object specifying the length of the time step period. Note that if
+###             the length  of the current_step_interval is equal to the time_step_period the function will return
+###             a list of length 1. In CreateTimeStepsv2, when the length  of the current_step_interval is 
+###             equal to the time_step_period, the date of the POSIXct object of the start date of the 
+###             current_step_interval.
+### Returns: a list of intervals
+### Notes:
+### Javan Bauder
+### 2015.03.13
+
+CreateTimeStepsv2 <- function(current_step_interval=current_step_interval,
+                       time_step_period=time_step_period){
+  suppressPackageStartupMessages(require(lubridate))
+  options(lubridate.verbose=FALSE)
+  if(int_length(current_step_interval) == period_to_seconds(time_step_period)){
+    time_steps <- int_start(current_step_interval)
+  } else {
+    time_steps <- list()
+    step_start <- int_start(current_step_interval) + time_step_period
+    time_steps[[1]] <- step_start
+    stop_point <- int_end(current_step_interval)
+    seconds_to_add <- period_to_seconds(time_step_period)
+    t.step <- 2
+    while(time_steps[[t.step-1]] != (stop_point)){
+      time_steps[[t.step]] <- (step_start + seconds_to_add)
+      t.step <- t.step + 1
+      seconds_to_add <- seconds_to_add + period_to_seconds(time_step_period)
+    }  
+  }
+  return(time_steps)
+}
